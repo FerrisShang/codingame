@@ -1,3 +1,4 @@
+# https://www.codingame.com/contests/mean-max
 import time
 import random
 import sys
@@ -180,6 +181,7 @@ class G(CMap):
         self.list_tanker = None
         self.list_player = None
         self.list_wreck = None
+        self.list_oil = None
         self.TEST = 0
 
     def round_init(self, scores, rages, unit_list):
@@ -192,6 +194,7 @@ class G(CMap):
         self.list_tanker = []
         self.list_player = []
         self.list_wreck = []
+        self.list_oil = []
 
         for _ in range(len(unit_list)):
             u = unit_list[_]
@@ -212,6 +215,8 @@ class G(CMap):
                 g.list_wreck.append(u)
             if UnitType(u.unit_type) == UnitType.T:  # T
                 g.list_tanker.append(u)
+            if UnitType(u.unit_type) == UnitType.O:  # O
+                g.list_oil.append(u)
 
 
 def v_dirc(v):
@@ -230,39 +235,24 @@ def doof_direc(g):
     if  _dist < 2000 and dvan([g.reapers[0].x, g.reapers[0].y], [g.doofs[0].x,g.doofs[0].y],
             direct([g.reapers[0].x, g.reapers[0].y], [g.reapers[0].tx, g.reapers[0].ty])) < _ang:
         _dir = get_outdirect([g.reapers[0].x, g.reapers[0].y], [g.doofs[0].x,g.doofs[0].y],step=1000)
-        return "{} {} {} H".format(int(doof.x+_dir[0]), int(doof.y+_dir[1]), int(300))
-    elif dist([g.doofs[0].x,g.doofs[0].y], [target.x,target.y]) < 6500:
+        doof_action = "{} {} {} H".format(int(doof.x+_dir[0]), int(doof.y+_dir[1]), int(300))
+    else:
         tx,ty,th = ppath((g.doofs[0].x, g.doofs[0].y), (target.x, target.y), (g.doofs[0].vx, g.doofs[0].vy),
               g.doofs[0].mass, g.doofs[0].friction)
-        return "{} {} {} T:{}".format(int(tx), int(ty), int(th), target.player)
-    else:
-        dirc_weight = [random.randint(100, 200) for _ in range(8)]
-        dirc = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]]
-        ap = CMap.m2a([doof.x, doof.y])
-        for i in range(len(dirc)):
-            if 0<=ap[1]+15*dirc[i][1]<=MAP_R*2 and 0<=ap[0]+15*dirc[i][0]<=MAP_R*2:
-                l = m[ap[1]+15*dirc[i][1]][ap[0]+15*dirc[i][0]]
-            else:
-                l = m[ap[1]+2*dirc[i][1]][ap[0]+2*dirc[i][0]]
-            for m_item in l:  # judge object
-                if m_item.unit_type == 0 and m_item.player != 0:  # other player
-                    dirc_weight[i] += 1000
-                elif m_item.unit_type == 0 and m_item.player == 0:  # my reaper
-                    dirc_weight[i] -= 5000
-                else:
-                    if 0 < m_item.unit_type < 4:  # other object which can be collision
-                        dirc_weight[i] -= 200
-            if 0<=ap[1]+15*dirc[i][1]<=MAP_R*2 and 0<=ap[0]+15*dirc[i][0]<=MAP_R*2:
-                _d = dist(CMap.a2m([ap[0] + 15*dirc[i][0], ap[1] + 15*dirc[i][1]]), (0, 0))
-            else:
-                _d = dist(CMap.a2m([ap[0] + 2*dirc[i][0], ap[1] + 2*dirc[i][1]]), (0, 0))
-            if _d > RADIUS-800:  # judge boundary
-                dirc_weight[i] -= 5000
-            if dirc[i] == v_dirc([doof.vx, doof.vy]):  # judge v direction
-                dirc_weight[i] += 1000
-        i = dirc_weight.index(max(dirc_weight))
-        return "{} {} {} R".format(int(doof.x+dirc[i][0]), int(doof.y+dirc[i][1]), int(300))
-
+        th = 300 if dist([g.doofs[0].x,g.doofs[0].y], [target.x,target.y]) < 3000 else th
+        doof_action = "{} {} {} T:{}".format(int(tx), int(ty), int(th), target.player)
+    if g.rages[0] > 30:
+        for w in g.list_wreck:
+            pure_flag = True
+            for o in g.list_oil:
+                if dist([o.x,o.y], [w.x,w.y]) < w.radius+o.radius:
+                    pure_flag = False
+            if pure_flag and dist([target.x,target.y], [w.x,w.y]) < w.radius < \
+                    dist([g.reapers[0].x,g.reapers[0].y], [w.x,w.y]):  # target in the wreck bue me out
+                if speed([target.x,target.y]) < 300/target.mass:  # target can stop in wreck
+                    if w.extra > 1:
+                        doof_action = "SKILL {} {} S".format(int(w.x), int(w.y))
+    return doof_action
 
 def get_interpolation(s, d, step=600):
     if abs(s[0]-d[0])<step or abs(s[1]-d[1])<step:
@@ -376,24 +366,24 @@ def proc(g, scores, rages, unit_list):
                                                   _destroyer_target.unit_id if _destroyer_target else None)
     # Destroyer Skill
     target = g.reapers[1] if g.scores[1] > g.scores[2] else g.reapers[2]
-    if g.rages[0] > 60:
-        for w in g.list_wreck:
-            if dvan((target.x,target.y), (w.x,w.y), (target.vx, target.vy)) < 3.14/4:  # right direction
-                for di in range(700, 2000, 100):
-                    (bx, by) = [target.x + target.vx/(abs(target.vx)+0.1)*di,
-                                target.y + target.vy/(abs(target.vy)+0.1)*di]
-                    if dist([bx, by], [g.reapers[0].x, g.reapers[0].y]) > 3000 and \
-                            1500 > dist((bx, by), (g.destroyers[0].x, g.destroyers[0].y)):
-                        action_destroyer = "SKILL {} {} D={}({},{})".format(int(bx), int(by),
-                                        int(dist((bx, by), (g.destroyers[0].x, g.destroyers[0].y))), int(bx/100), int(by/100))
-                        break
-            if dist((target.x,target.y), (w.x,w.y)) < w.radius + 100:
-                for p in [(random.randint(-1000, 1000), random.randint(-1000, 1000)) for _ in range(10)]:
-                    if dist([p[0], p[1]], [g.reapers[0].x, g.reapers[0].y]) > 3000 and \
-                            1500 > dist((p[0], p[1]), (g.destroyers[0].x, g.destroyers[0].y)):
-                        action_destroyer = "SKILL {} {} D={}({},{})".format(int(p[0]), int(p[1]),
-                                        int(dist((p[0], p[1]), (g.destroyers[0].x, g.destroyers[0].y))), int(p[0]), int(p[1]))
-                        break
+    # if g.rages[0] > 60:
+    #     for w in g.list_wreck:
+    #         if dvan((target.x,target.y), (w.x,w.y), (target.vx, target.vy)) < 3.14/4:  # right direction
+    #             for di in range(700, 2000, 100):
+    #                 (bx, by) = [target.x + target.vx/(abs(target.vx)+0.1)*di,
+    #                             target.y + target.vy/(abs(target.vy)+0.1)*di]
+    #                 if dist([bx, by], [g.reapers[0].x, g.reapers[0].y]) > 3000 and \
+    #                         1500 > dist((bx, by), (g.destroyers[0].x, g.destroyers[0].y)):
+    #                     action_destroyer = "SKILL {} {} D={}({},{})".format(int(bx), int(by),
+    #                                     int(dist((bx, by), (g.destroyers[0].x, g.destroyers[0].y))), int(bx/100), int(by/100))
+    #                     break
+    #         if dist((target.x,target.y), (w.x,w.y)) < w.radius + 100:
+    #             for p in [(random.randint(-1000, 1000), random.randint(-1000, 1000)) for _ in range(10)]:
+    #                 if dist([p[0], p[1]], [g.reapers[0].x, g.reapers[0].y]) > 3000 and \
+    #                         1500 > dist((p[0], p[1]), (g.destroyers[0].x, g.destroyers[0].y)):
+    #                     action_destroyer = "SKILL {} {} D={}({},{})".format(int(p[0]), int(p[1]),
+    #                                     int(dist((p[0], p[1]), (g.destroyers[0].x, g.destroyers[0].y))), int(p[0]), int(p[1]))
+    #                     break
     if g.rages[0] > 250 and not "SKILL" in action_destroyer:
         v = speed([target.vx, target.vy])
         for di in range(100, 2000, 200):
