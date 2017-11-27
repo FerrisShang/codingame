@@ -37,18 +37,19 @@ def optarget(me, tar):
 def direct(s, d):
     return [d[0]-s[0], d[1]-s[1]]
 
-
 def dvan(s, d, sv):
-    if speed(sv) < 2:
-        return 3.14
     r = [d[0]-s[0], d[1]-s[1]]
-    return math.acos((r[0]*sv[0]+r[1]*sv[1])/math.sqrt(r[0]**2+r[1]**2)/math.sqrt(sv[0]**2+sv[1]**2))
+    if speed(sv) < 0.1 or speed(r) < 0.1:
+        return 3.14
+    t = (r[0]*sv[0]+r[1]*sv[1]) / (math.sqrt(r[0]**2+r[1]**2)*math.sqrt(sv[0]**2+sv[1]**2))
+    t = 1 if t > 1 else t
+    t = -1 if t < -1 else t
+    return math.acos(t)
 
-
-def dis_brake(vs, mass, fr):
+def dis_break(vs, mass, fr, max_f=300):
     if vs <= 0:
         return 0
-    max_a = 300 / mass
+    max_a = max_f / mass
     length = 0
     while vs > 0:
         vs = vs - max_a if max_a < vs else 0
@@ -57,50 +58,32 @@ def dis_brake(vs, mass, fr):
     return length
 
 
-def acc_to_dest(vs, dis, mass, fr, f=0.0, fmin=-300.0, fmax=300.0):
-    if dis < 33:
-        return -vs * mass
-    res = None
+def acc_to_dest(vs, dis, mass, fr, f=0, fmin=-300, fmax=300):
     if fmax - fmin < 1:
         return f
     tvs = vs + f/mass
     tdis = dis - tvs
     tvs *= (1-fr)
-    if tdis < 0 or tdis < dis_brake(tvs, mass, fr):  # Can NOT brake in time
-        res = acc_to_dest(vs, dis, mass, fr, (f+fmin)/2, fmin=fmin, fmax=f)
+    if tdis > dis_break(tvs, mass, fr):
+        res = acc_to_dest(vs, dis, mass, fr, (f+fmax)/2, fmin=f, fmax=fmax)
     else:
-        if tdis > dis_brake(tvs, mass, fr):  # f is ok, but maybe not best
-            res = f
-        if res != None:  # find best result
-            t = acc_to_dest(vs, dis, mass, fr, (f+fmax)/2, fmin=f, fmax=fmax)
-            if t:
-                res = t
-        else:  # no result can be use, reduce f then find again
-            t = acc_to_dest(vs, dis, mass, fr, (f+fmin)/2, fmin=fmin, fmax=f)
-            if res == None:
-                res = t
+        res = acc_to_dest(vs, dis, mass, fr, (f+fmin)/2, fmin=fmin, fmax=f)
     return res
 
 
 def ppath(s, d, vs, mass, fr):
     _dist = dist(s, d)
-    _m = _dist/(speed(vs)+1)
-    if _dist > 2000:
-        _m = _m if _m < 2 else 2
+    _dist = 0.1 if _dist < 0.1 else _dist
+    vsd = speed(vs)*math.cos(dvan(s, d, vs))
+    f = acc_to_dest(vsd, _dist, mass, fr)
+    if f != None and abs(f) > 0.01:
+        _v = f / mass + vsd  # end of v
+        _v = [_v*(d[0]-s[0])/_dist, _v*(d[1]-s[1])/_dist]
+        _tv = (_v[0]-vs[0], _v[1]-vs[1])
+        (tx, ty) = (s[0]+_tv[0], s[1]+_tv[1])
+        throttle = speed(_tv) * mass
     else:
-        _m = _m if _m < 0.1 else 0.1
-
-    (tx, ty) = (d[0] - vs[0]*_m, d[1] - vs[1]*_m)
-    f = acc_to_dest(speed(vs), _dist, mass, fr)
-    if f != None:
-        if f < 0:
-            (tx, ty) = (s[0]-vs[0], s[1]-vs[1])
-            throttle = -f
-        else:
-            throttle = f
-    else:
-        throttle = 0
-
+        (tx, ty, throttle) = (0, 0, 0)
     throttle = throttle if throttle < 300 else 300
     # print('--------- {} {} {}'.format(int(tx), int(ty), int(throttle)))
     return tx, ty, throttle
@@ -177,8 +160,8 @@ class CMap:
             x += vx * interval
             y += vy * interval
             t += interval
-            for idx in [[1,0],[0,1],[-1,0],[0,-1],[0,0]]:
-            # for idx in [[1,0],[1.4,1.4],[0,1],[-1.4,1.4],[-1,0],[-1.4,-1.4],[0,-1],[1.4,-1.4]]:
+            # for idx in [[1,0],[0,1],[-1,0],[0,-1],[0,0]]:
+            for idx in [[1,0],[1.4,1.4],[0,1],[-1.4,1.4],[-1,0],[-1.4,-1.4],[0,-1],[1.4,-1.4],[0,0]]:
                 (tx, ty) = CMap.m2a((x+idx[0]*u.radius, y+idx[1]*u.radius))
                 self.map[ty][tx].append(MUnit(t, u))
 
