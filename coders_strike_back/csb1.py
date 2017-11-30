@@ -1,9 +1,8 @@
 # https://www.codingame.com/ide/puzzle/coders-strike-back
 import sys
 import math
-import random
 import time
-from enum import Enum, IntEnum
+from enum import IntEnum
 
 
 def debug(msg):
@@ -36,14 +35,22 @@ def dvan(s, d, sv):
     return math.acos(t) * 180 / math.pi
 
 
+def vvan(v1, v2):
+    if speed(v2) < 0.1 or speed(v1) < 0.1:
+        return 180
+    t = (v1[0]*v2[0]+v1[1]*v2[1]) / (math.sqrt(v1[0]**2+v1[1]**2)*math.sqrt(v2[0]**2+v2[1]**2))
+    t = 1 if t > 1 else t
+    t = -1 if t < -1 else t
+    return math.acos(t) * 180 / math.pi
+
+
+def abs_ang(a):
+    return a - 360 if a > 180 else a + 360 if a < -180 else a
+
+
 def d_ang_abs(s, d, re_ang):
     _res = int(math.atan2((d[1] - s[1]), (d[0] - s[0])) * 180 / math.pi)
-    if _res - re_ang > 180:
-        return _res - re_ang - 360
-    elif _res - re_ang < -180:
-        return _res - re_ang + 360
-    else:
-        return _res - re_ang
+    return abs_ang(_res - re_ang)
 
 
 class Id(IntEnum):
@@ -52,57 +59,73 @@ class Id(IntEnum):
 
 
 class Unit:
-    def __init__(self, _id, x=0, y=0, nc_x=0, nc_y=0, nc_dist=0, nc_angle=0):
+    def __init__(self, g, _id, x=0, y=0, nc_x=0, nc_y=0, nc_dist=0, nc_angle=0):
         assert(isinstance(_id, Id))
+        assert(isinstance(g, G))
+        self.g = g
         self.owner = _id
         self.boost = True
-        self.lap = 1
-        self.x = x
-        self.y = y
-        self.nc_x = nc_x
-        self.nc_y = nc_y
+        self.lap = 0
+        self.p = (x, y)
+        self.ang = 0
+        self.nc = (nc_x, nc_y)
+        self.nnc = (None, None)
         self.nc_dist = nc_dist
         self.nc_angle = nc_angle
-        self.vx = None
-        self.vy = None
+        self.onp = (-1, -1)
+        self.v = (None, None)
         self.path = []
 
     def update(self, x, y, nc_x=0, nc_y=0, nc_dist=0, nc_angle=0):
-        if self.vx == None and self.vy == None:
-            (self.vx, self.vy) = (0, 0)
+        if self.v == (None, None):
+            self.v = (0, 0)
         else:
-            (self.vx, self.vy) = (x - self.x, y - self.y)
-        self.x = x
-        self.y = y
-        self.nc_x = nc_x
-        self.nc_y = nc_y
+            self.v = (int((x - self.p[0]) * G.vr_rate), int((y - self.p[1]) * G.vr_rate))
+        self.p = (x, y)
+        if self.owner != Id.ME:
+            return
+        self.nc = (nc_x, nc_y)
         self.nc_dist = nc_dist
         self.nc_angle = nc_angle
+        self.ang = d_ang_abs(self.p, self.nc, self.nc_angle)
         self.path.append((x, y))
+        check_points = self.g.cps
+        if self.onp != (nc_x, nc_y):
+            self.onp = (nc_x, nc_y)
+            if self.onp == check_points[0]:
+                self.lap += 1
+        if self.g.cps_clear:
+            _idx = self.g.idx_cps(self.nc)
+            self.nnc = self.g.cps[(_idx + 1) % len(self.g.cps)]
+        else:
+            self.nnc = (int(G.W/2), int(G.H/2))
 
 
 class G:
+    H = 9000
+    W = 16000
+    BOOST = 650
+    cp_r = 600
+    pod_r = 400
+    ang_v = 18  # Angular velocity
+    vr_rate = 0.85  # velocity reduce rate
+
     def __init__(self):
-        self.H = 9000
-        self.W = 16000
         self.cps = []
         self.cps_clear = False
-        self.cp_r = 600
-        self.pod_r = 400
-        self.ang_v = 18  # Angular velocity
-        self.vr_rate = 0.85  # velocity reduce rate
-        self.me = Unit(Id.ME)
-        self.op = Unit(Id.OP)
+        self.me = Unit(self, Id.ME)
+        self.op = Unit(self, Id.OP)
 
-    def update_myself(self, str_me, onp=[(-1, -1)]):
+    def update_myself(self, str_me):
         x, y, nc_x, nc_y, nc_dist, nc_angle = list(map(int, str_me.split()))
-        self.me.update(x, G.m2m(y), nc_x, G.m2m(nc_y), nc_dist, G.m2m(nc_angle))
-        if not self.cps_clear and onp[0] != (self.me.nc_x, self.me.nc_y):
-            onp[0] = (self.me.nc_x, self.me.nc_y)
-            if not (self.me.nc_x, self.me.nc_y) in self.cps:
-                self.cps.append((self.me.nc_x, self.me.nc_y))
-            else:
+        nc_y = G.m2m(nc_y)
+        if not self.cps_clear:
+            if not (nc_x, nc_y) in self.cps:
+                self.cps.append((nc_x, nc_y))
+            elif (nc_x, nc_y) == self.cps[0] and len(self.cps) > 1:
+                debug('CheckPoint:{}'.format(self.cps))
                 self.cps_clear = True
+        self.me.update(x, G.m2m(y), nc_x, nc_y, nc_dist, G.m2m(nc_angle))
 
     def update_opponent(self, str_op):
         x, y = list(map(int, str_op.split()))
@@ -125,38 +148,74 @@ class G:
         return -y
 
 
+class Sim:
+    ang_v = 18  # Angular velocity
+    vr_rate = 0.85  # velocity reduce rate
+    cp_r = 600
+
+    def __init__(self, target):
+        self.x = target[-1][0]
+        self.y = target[-1][1]
+        self.ang = d_ang_abs(target[-1], target[0], 0)
+        self.vx = 0
+        self.vy = 0
+        self.step = 0
+        self.path_list = []
+
+    def update(self, x, y, t):
+        des_ang = int(math.atan2(y-self.y, x-self.x)*180/math.pi)
+        if abs(abs_ang(des_ang - self.ang)) <= self.ang_v:
+            self.ang = des_ang
+        else:
+            self.ang += self.ang_v \
+                if abs(abs_ang(des_ang-(self.ang+self.ang_v))) < abs(abs_ang(des_ang-(self.ang-self.ang_v))) \
+                else -self.ang_v
+        self.vy += round(math.sin(self.ang*math.pi/180)*t)
+        self.vx += round(math.cos(self.ang*math.pi/180)*t)
+        self.x += self.vx
+        self.y += self.vy
+        self.vx = int(self.vx * self.vr_rate)
+        self.vy = int(self.vy * self.vr_rate)
+        self.path_list.append((int(self.x), int(self.y), int(self.ang), int(self.vx), int(self.vy)))
+        self.step += 1
+        # print('{},{},{} | {},{}'.format(int(self.x), int(self.y), int(self.ang), int(self.vx), int(self.vy)))
+        return int(self.x), int(self.y), int(self.ang), int(self.vx), int(self.vy)
+
+    def get_path_list(self):
+        return self.path_list
+
+
 def process(g):
-    debug_msg = ''
     assert (isinstance(g, G))
-    if g.me.nc_angle > 90 or g.me.nc_angle < -90:
-        act_x = g.me.nc_x
-        act_y = g.me.nc_y
+    if g.me.nc_angle > 60 or g.me.nc_angle < -60:
+        (act_x, act_y) = g.me.nc
         thrust = 0
     else:
-        if g.cps_clear and g.me.nc_dist < 2500 and \
-                dvan((g.me.x, g.me.y), (g.me.nc_x, g.me.nc_y), (g.me.vx, g.me.vy)) < 20 and \
-                speed((g.me.vx, g.me.vy)) > 250:
-            idx = g.idx_cps((g.me.nc_x, g.me.nc_y))
-            (act_x, act_y) = g.cps[(idx+1) % len(g.cps)]
+        if g.me.nc_dist < 2500 and dvan(g.me.p, g.me.nc, g.me.v) < 20 and speed(g.me.v) > 250:
+            (act_x, act_y) = (g.me.nnc[0], g.me.nnc[1])
             thrust = 0
         else:
-            act_x = g.me.nc_x
-            act_y = g.me.nc_y
-            if g.me.nc_dist > 2000:
+            (act_x, act_y) = g.me.nc
+            if g.me.nc_dist > 7000 and g.me.v != (0, 0):
                 thrust = 'BOOST' if g.me.boost else 100
+            elif g.me.nc_dist > 2500:
+                thrust = 100
             else:
-                thrust = 40
-    debug_msg = '{}'.format(d_ang_abs((g.me.x, g.me.y), (g.me.nc_x, g.me.nc_y), g.me.nc_angle))
+                thrust = 60
+    debug('({},{},{}|{})({},{}) - ({},{},{})'.format(g.me.p[0], g.me.p[1], g.me.ang, g.me.nc_angle, g.me.v[0], g.me.v[1], act_x, act_y, thrust))
+    # debug('({},{}),({},{})'.format(g.me.nc[0], g.me.nc[1], g.me.nnc[0], g.me.nnc[1]))
+    debug_msg = '{}-{}'.format(g.me.lap, g.idx_cps(g.me.nc))
     return act_x, act_y, thrust, debug_msg
 
 
-# game loop
-_g = G()
-while True:
-    _g.update_myself(input())
-    _g.update_opponent(input())
-    st = int(round(time.time() * 1000))
-    _x, _y, _t, _msg = process(_g)
-    _g.action(_x, _y, _t, _msg)
-    en = int(round(time.time() * 1000))
-    debug('delay:{}ms'.format(en - st))
+if __name__ == '__main__':
+    # game loop
+    _g = G()
+    while True:
+        _g.update_myself(input())
+        _g.update_opponent(input())
+        st = int(round(time.time() * 1000))
+        _x, _y, _t, _msg = process(_g)
+        _g.action(_x, _y, _t, _msg)
+        en = int(round(time.time() * 1000))
+        debug('delay:{}ms'.format(en - st))
