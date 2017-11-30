@@ -98,7 +98,7 @@ class Unit:
             _idx = self.g.idx_cps(self.nc)
             self.nnc = self.g.cps[(_idx + 1) % len(self.g.cps)]
         else:
-            self.nnc = (int(G.W/2), int(G.H/2))
+            self.nnc = (int(G.W/2), int(-G.H/2))
 
 
 class G:
@@ -153,12 +153,12 @@ class Sim:
     vr_rate = 0.85  # velocity reduce rate
     cp_r = 600
 
-    def __init__(self, target):
-        self.x = target[-1][0]
-        self.y = target[-1][1]
-        self.ang = d_ang_abs(target[-1], target[0], 0)
-        self.vx = 0
-        self.vy = 0
+    def __init__(self, target=None, x=None, y=None, ang=None, vx=0, vy=0):
+        self.x = target[-1][0] if x==None else x
+        self.y = target[-1][1] if y==None else y
+        self.ang = d_ang_abs(target[-1], target[0], 0) if ang==None else ang
+        self.vx = vx
+        self.vy = vy
         self.step = 0
         self.path_list = []
 
@@ -187,21 +187,25 @@ class Sim:
 
 def process(g):
     assert (isinstance(g, G))
-    if g.me.nc_angle > 60 or g.me.nc_angle < -60:
-        (act_x, act_y) = g.me.nc
-        thrust = 0
+    (act_x, act_y) = (None, None)
+    if g.me.nc_dist < 3500:
+        thrust = int(dist(g.me.nc, g.me.nnc) /10)
+        thrust = 100 if thrust > 100 else 30 if thrust < 30 else thrust
+        s = Sim(x=g.me.p[0], y=g.me.p[1], ang=g.me.ang, vx=g.me.v[0], vy=g.me.v[1])
+        for _ in range(20):
+            tx, ty, ta, tvx, tvy = s.update(g.me.nnc[0], g.me.nnc[1], thrust)
+            if dist(g.me.nc, (tx, ty)) < g.cp_r - 20:
+                (act_x, act_y) = (g.me.nnc[0], g.me.nnc[1])
+                break
+        if (act_x, act_y) == (None, None):
+            thrust = 100
+            (act_x, act_y) = (g.me.nc[0], g.me.nc[1])
     else:
-        if g.me.nc_dist < 2500 and dvan(g.me.p, g.me.nc, g.me.v) < 20 and speed(g.me.v) > 250:
-            (act_x, act_y) = (g.me.nnc[0], g.me.nnc[1])
-            thrust = 0
+        (act_x, act_y) = g.me.nc
+        if g.me.nc_dist > 7000 and g.me.v != (0, 0) and False:
+            thrust = 'BOOST' if g.me.boost else 100
         else:
-            (act_x, act_y) = g.me.nc
-            if g.me.nc_dist > 7000 and g.me.v != (0, 0):
-                thrust = 'BOOST' if g.me.boost else 100
-            elif g.me.nc_dist > 2500:
-                thrust = 100
-            else:
-                thrust = 60
+            thrust = 100
     debug('({},{},{}|{})({},{}) - ({},{},{})'.format(g.me.p[0], g.me.p[1], g.me.ang, g.me.nc_angle, g.me.v[0], g.me.v[1], act_x, act_y, thrust))
     # debug('({},{}),({},{})'.format(g.me.nc[0], g.me.nc[1], g.me.nnc[0], g.me.nnc[1]))
     debug_msg = '{}-{}'.format(g.me.lap, g.idx_cps(g.me.nc))

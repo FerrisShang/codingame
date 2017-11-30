@@ -50,6 +50,7 @@ class Draw:
         turtle.speed(0)
         for step in range(max_len-1):
             for i in range(len(path_lists)):
+                turtle.color(["#003300", "#330033"][i])
                 try:
                     turtle.up()
                     turtle.setposition(path_lists[i][step][0], path_lists[i][step][1])
@@ -79,7 +80,7 @@ def test1(target):
                 else:
                     tp = (target[i+1][0], target[i+1][1])
             x, y, a, vx, vy = s.update(tp[0], tp[1], thrust)
-            if dist((x, y), target[i]) < Sim.cp_r:
+            if dist((x, y), target[i]) < Sim.cp_r or s.step > 1000:
                 break
 
     print('------------------------- {}'.format(s.step))
@@ -102,19 +103,20 @@ def test2(target):
                 else:
                     tp = (target[i+1][0], target[i+1][1])
             x, y, a, vx, vy = s.update(tp[0], tp[1], thrust)
-            if dist((x, y), target[i]) < Sim.cp_r:
+            if dist((x, y), target[i]) < Sim.cp_r or s.step > 1000:
                 break
 
     print('------------------------- {}'.format(s.step))
     return s.get_path_list()
 
 
-
 if __name__ == '__main__':
     _target = [(4096, 7407), (13475, 2359), (12944, 7202), (5620, 2550)]
+    # _target = [(6532, 7848), (7469, 1372), (12723, 7077), (4054, 4657), (13051, 1902)] *2
+    # _target = [(3339, 7225), (14567, 7708), (10547, 5084), (13121, 2310), (4548, 2182), (7342, 4917)] * 2
     _path_lists = []
-    _d = Draw()
-    _d.init_cp(_target)
     _path_lists.append(test1(_target))
     _path_lists.append(test2(_target))
+    _d = Draw()
+    _d.init_cp(_target)
     _d.perform(_path_lists)
