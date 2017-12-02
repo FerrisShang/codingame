@@ -34,6 +34,11 @@ def dvan(s, d, sv):
     return math.acos(t) * 180 / math.pi
 
 
+def turn_an(s, d1, d2):
+    _res = (math.atan2((d2[1] - d1[1]), (d2[0] - d1[0]))-math.atan2((d1[1] - s[1]), (d1[0] - s[0]))) * 180 / math.pi
+    return abs_ang(_res)
+
+
 def vvan(v1, v2):
     if speed(v2) < 0.1 or speed(v1) < 0.1:
         return 180
@@ -97,6 +102,7 @@ class G:
     vr_rate = 0.85  # velocity reduce rate
 
     def __init__(self):
+        self.round = 0
         self.pods = []
         for _ in range(4):
             self.pods.append(Unit(self))
@@ -114,8 +120,9 @@ class G:
         self.pods[pod_idx].update(x, G.m2m(y), vx,  G.m2m(vy), G.m2m(ang), nc_id)
 
     def action(self, act_1, act_2, debug1_msg=None, debug2_msg=None):
-        x1, y1, t1 = (int(act_1[0]), int(G.m2m(act_1[1])), int(act_1[2]) if isinstance(act_1[2], int) else act_1[2])
-        x2, y2, t2 = (int(act_2[0]), int(G.m2m(act_2[1])), int(act_2[2]) if isinstance(act_2[2], int) else act_2[2])
+        self.round += 1
+        x1, y1, t1 = G.target_regular(act_1, self.pods[M1].p)
+        x2, y2, t2 = G.target_regular(act_2, self.pods[M2].p)
         for act, idx in zip([act_1, act_2], [0, 1]):
             if isinstance(act[2], str) and act[2] == 'BOOST':
                 self.pods[idx].boost = False
@@ -131,6 +138,31 @@ class G:
             print('{} {} {}'.format(x2, y2, t2))
 
     @staticmethod
+    def target_regular(action, local_p):
+        _d = dist((action[0], action[1]), local_p)
+        if _d > 400:
+            _r = 400 / _d
+            _act0 = local_p[0] + (action[0] - local_p[0]) * _r
+            _act1 = local_p[1] + (action[1] - local_p[1]) * _r
+        else:
+            _act0 = action[0]
+            _act1 = action[1]
+        return int(_act0), int(G.m2m(_act1)), int(action[2]) if isinstance(action[2], int) else action[2]
+
+    @staticmethod
+    def coll_point(p_out, p_in, o):  # dist(p_out, o)>2*r & dist(p_in, o)<r
+        _mid = ((p_out[0]+p_in[0])/2, (p_out[1]+p_in[1])/2)
+        tmp_dist = dist(_mid, o)
+        if abs(tmp_dist - G.pod_r*2) < 5:
+            return [round(_mid[0]), round(_mid[1])]
+        elif abs(p_out[0] - p_in[0]) + abs(p_out[0] - p_in[0]) < 1:
+            return None
+        if tmp_dist - G.pod_r*2 < 0:
+            return G.coll_point(_mid, p_in, o)
+        else:
+            return G.coll_point(p_out, _mid, o)
+
+    @staticmethod
     def m2m(y):
         return -y
 
@@ -140,10 +172,10 @@ class Sim:
     vr_rate = 0.85  # velocity reduce rate
     cp_r = 600
 
-    def __init__(self, target=None, x=None, y=None, ang=None, vx=0, vy=0):
-        self.x = target[-1][0] if x==None else x
-        self.y = target[-1][1] if y==None else y
-        self.ang = d_ang_abs(target[-1], target[0], 0) if ang==None else ang
+    def __init__(self, target=None, x=(None,), y=(None,), ang=(None,), vx=0, vy=0):
+        self.x = target[-1][0] if x == (None,) else x
+        self.y = target[-1][1] if y == (None,) else y
+        self.ang = d_ang_abs(target[-1], target[0], 0) if ang == (None,) else ang
         self.vx = vx
         self.vy = vy
         self.step = 0
@@ -174,32 +206,40 @@ class Sim:
 
 def process(g):
     assert (isinstance(g, G))
-
     for pid in range(2):
         me = g.pods[pid]
         nc_p = g.cps[me.nc_id]
-        nnc_p = g.cps[(me.nc_id+1)%g.cps_num]
+        nnc_p = g.cps[(me.nc_id+1) % g.cps_num]
+        _dist_tar = dist(me.p, nc_p)
         act_target = (None, None)
-        if dist(me.p, nc_p) < 4000:
-            thrust = int(dist(nc_p, nnc_p) / 10)
-            thrust = 100 if thrust > 100 else 30 if thrust < 30 else thrust
-            s = Sim(x=me.p[0], y=me.p[1], ang=me.ang, vx=me.v[0], vy=me.v[1])
-            for _ in range(20):
-                tx, ty, ta, tvx, tvy = s.update(nnc_p[0], nnc_p[1], thrust)
-                if dist(nc_p, (tx, ty)) < G.cp_r - 20:
-                    act_target = nnc_p
+        thrust = 100
+        if _dist_tar < 5000:
+            for thrust in range(100, 90, -1):
+                s = Sim(x=me.p[0], y=me.p[1], ang=me.ang, vx=me.v[0], vy=me.v[1])
+                for _ in range(20):
+                    tx, ty, ta, tvx, tvy = s.update(nnc_p[0], nnc_p[1], thrust)
+                    if dist(nc_p, (tx, ty)) < G.cp_r - 3:
+                        act_target = nnc_p
+                        break
+                if act_target != (None, None):
                     break
-            if act_target == (None, None):  # ##
-                thrust = 100
-                act_target = nc_p
-        else:
-            act_target = nc_p
-            if dist(nc_p, me.p) > 5000 and dvan(me.p, nc_p, me.v) < 30:
-                thrust = 'BOOST' if me.boost else 100
+        if act_target == (None, None):
+            if _dist_tar > 3000:
+                _ang = turn_an(me.p, nc_p, nnc_p)
+                me.debug_msg = 'R'+str(int(_ang)) if _ang < 0 else 'L' + str(int(_ang))
+                _ang = - _ang / 9
+                _dist = dist(me.p, nc_p)
+                _atar = d_ang_abs(me.p, nc_p, 0)
+                _ares = abs_ang(_atar + _ang) * math.pi / 180
+                act_target = (me.p[0] + _dist*math.cos(_ares), me.p[1] + _dist*math.sin(_ares))
             else:
-                thrust = 100
+                act_target = nc_p
+            if dvan(me.p, act_target, me.v) > 120:
+                thrust = 70
+        if dist(act_target, me.p) > 5000 and dvan(me.p, act_target, me.v) < 30:
+            thrust = 'BOOST' if me.boost else 100
         me.act = (act_target[0], act_target[1], thrust)
-        me.debug_msg = '{}-{}'.format(me.lap, me.nc_id)
+        # me.debug_msg = '{}-{}'.format(me.lap, me.nc_id)
     return g.pods[M1].act, g.pods[M1].debug_msg, g.pods[M2].act, g.pods[M2].debug_msg
 
 
