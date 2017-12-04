@@ -21,7 +21,7 @@ def optarget(me, tar):
 
 
 def op_ang(tdirect, ref_direct):
-    return (math.atan2(ref_direct[1], ref_direct[1]) * 2 - math.atan2(tdirect[1], tdirect[1])*2)*180/math.pi
+    return math.degrees(math.atan2(ref_direct[1], ref_direct[0]) * 2 - math.atan2(tdirect[1], tdirect[0]))
 
 
 def direct(s, d):
@@ -35,21 +35,21 @@ def dvan(s, d, sv):
     t = (r[0]*sv[0]+r[1]*sv[1]) / (math.sqrt(r[0]**2+r[1]**2)*math.sqrt(sv[0]**2+sv[1]**2))
     t = 1 if t > 1 else t
     t = -1 if t < -1 else t
-    return math.acos(t) * 180 / math.pi
+    return math.degrees(math.acos(t))
 
 
 def turn_an(s, d1, d2):
-    _res = (math.atan2((d2[1] - d1[1]), (d2[0] - d1[0]))-math.atan2((d1[1] - s[1]), (d1[0] - s[0]))) * 180 / math.pi
+    _res = math.degrees(math.atan2((d2[1] - d1[1]), (d2[0] - d1[0]))-math.atan2((d1[1] - s[1]), (d1[0] - s[0])))
     return abs_ang(_res)
 
 
 def vvan(v1, v2):
-    _res = (math.atan2(v1[1], v1[0])-math.atan2(v2[1], v2[0])) * 180 / math.pi
+    _res = math.degrees(math.atan2(v1[1], v1[0])-math.atan2(v2[1], v2[0]))
     return abs_ang(_res)
 
 
 def adan(ang, s, d):
-    _res = (ang*math.pi/180 - math.atan2(d[1]-s[1], d[0]-s[0])) * 180 / math.pi
+    _res = math.degrees(math.radians(ang) - math.atan2(d[1]-s[1], d[0]-s[0]))
     return abs_ang(_res)
 
 
@@ -58,7 +58,7 @@ def abs_ang(a):
 
 
 def d_ang_abs(s, d, re_ang):
-    _res = int(math.atan2((d[1] - s[1]), (d[0] - s[0])) * 180 / math.pi)
+    _res = int(math.degrees(math.atan2((d[1] - s[1]), (d[0] - s[0]))))
     return abs_ang(_res - re_ang)
 
 
@@ -67,7 +67,7 @@ M2 = 1
 O1 = 2
 O2 = 3
 MODE_NORMAL = 0
-MODE_ASSIST = 1
+MODE_BLOCKING = 1
 MODE_END = 2
 
 
@@ -103,7 +103,7 @@ class Unit:
     def dest_real_ang(self, d, ang):
         _l = G.pod_r
         _ang = math.atan2(d[1]-self.p[1], d[0]-self.p[0])
-        _ang += ang * math.pi / 180
+        _ang += math.radians(ang)
         (_x, _y) = (self.p[0]+_l*math.cos(_ang), self.p[1]+_l*math.sin(_ang))
         return _x, _y
 
@@ -153,9 +153,11 @@ class G:
         else:
             print('{} {} {}'.format(x2, y2, t2))
 
+    def lep_num(self, p):
+        return p.lap * self.cps_num + p.nc_id
+
     def op_lead(self):
-        return self.pods[O1] if self.pods[O1].lap*self.cps_num+self.pods[O1].nc_id > \
-                                self.pods[O2].lap*self.cps_num+self.pods[O2].nc_id else self.pods[O2]
+        return self.pods[O1] if self.lep_num(self.pods[O1]) > self.lep_num(self.pods[O2]) else self.pods[O2]
 
     @staticmethod
     def target_regular(action, local_p):
@@ -213,21 +215,21 @@ class Sim:
         self.step = 0
         self.path_list = []
 
-    def update(self, x, y, t):
-        des_ang = int(math.atan2(y-self.y, x-self.x)*180/math.pi)
+    def update(self, x, y, t, np=(0, 0), nnp=(0, 0)):
+        des_ang = int(math.degrees(math.atan2(y-self.y, x-self.x)))
         if abs(abs_ang(des_ang - self.ang)) <= self.ang_v:
             self.ang = des_ang
         else:
             self.ang += self.ang_v \
                 if abs(abs_ang(des_ang-(self.ang+self.ang_v))) < abs(abs_ang(des_ang-(self.ang-self.ang_v))) \
                 else -self.ang_v
-        self.vy += round(math.sin(self.ang*math.pi/180)*t)
-        self.vx += round(math.cos(self.ang*math.pi/180)*t)
+        self.vy += round(math.sin(math.radians(self.ang))*t)
+        self.vx += round(math.cos(math.radians(self.ang))*t)
         self.x += self.vx
         self.y += self.vy
         self.vx = int(self.vx * self.vr_rate)
         self.vy = int(self.vy * self.vr_rate)
-        self.path_list.append((int(self.x), int(self.y), int(self.ang), int(self.vx), int(self.vy)))
+        self.path_list.append((int(self.x), int(self.y), int(self.ang), int(self.vx), int(self.vy), np, nnp))
         self.step += 1
         # print('{},{},{} | {},{}'.format(int(self.x), int(self.y), int(self.ang), int(self.vx), int(self.vy)))
         return int(self.x), int(self.y), int(self.ang), int(self.vx), int(self.vy)
@@ -257,7 +259,6 @@ def proc_end(g, me):
 def proc_normal(g, me):
     assert (isinstance(g, G))
     assert(isinstance(me, Unit))
-    assert(me.mode == MODE_NORMAL)
     nc_p = g.cps[me.nc_id]
     nnc_p = g.cps[(me.nc_id+1) % g.cps_num]
     _dist_tar = dist(me.p, nc_p)
@@ -280,7 +281,7 @@ def proc_normal(g, me):
             _ang = - _ang / 9
             _dist = dist(me.p, nc_p)
             _atar = d_ang_abs(me.p, nc_p, 0)
-            _ares = abs_ang(_atar + _ang) * math.pi / 180
+            _ares = math.radians(abs_ang(_atar + _ang))
             act_target = (me.p[0] + _dist*math.cos(_ares), me.p[1] + _dist*math.sin(_ares))
         else:
             act_target = nc_p
@@ -299,6 +300,29 @@ def proc_normal(g, me):
         me.debug_msg = 'SHIELD - {}'.format(me.shield)
 
 
+def proc_blocking(g, me, op):
+    assert (isinstance(g, G))
+    assert(isinstance(me, Unit))
+    assert(isinstance(op, Unit))
+    assert(me.mode == MODE_BLOCKING)
+    me.debug_msg = 'BLOCKING'
+    if vvan((me.p[0]-op.p[0], me.p[1]-op.p[1]), (g.cps[op.nc_id][0]-op.p[0], g.cps[op.nc_id][1]-op.p[1])) < 90:
+        _d_mo = dist(me.p, op.p)
+        if _d_mo > 3000 or dvan(me.p, op.p, op.v) > 50:
+            (_x, _y) = ((op.p[0] + op.v[0]*_d_mo/200), (op.p[1] + op.v[1]*_d_mo/200))
+        else:
+            (_x, _y) = ((op.p[0] + op.v[0]*_d_mo/600), (op.p[1] + op.v[1]*_d_mo/600))
+        thrust = 100
+    else:
+        (_x, _y) = g.cps[(op.nc_id+1) % g.cps_num]
+        thrust = dist((_x, _y), me.p) / 20
+        thrust = thrust if thrust < 100 else 100
+    me.act = (_x,  _y, thrust)
+    (_shield_re_v1, _shield_re_v2) = (g.is_coll(me, op), g.is_coll(me, op))
+    if _shield_re_v1 > 100 or _shield_re_v2 > 100:
+        me.act = (me.act[0],  me.act[1], 'SHIELD')
+
+
 def process(g):
     assert (isinstance(g, G))
     for i in range(2):
@@ -306,6 +330,9 @@ def process(g):
         if me.lap == g.lap_num and me.nc_id == 0:  # last check point
             me.mode = MODE_END
             proc_end(g, me)
+        elif 0 < me.lap and g.lep_num(me) < g.lep_num(g.pods[1-i]) and g.pods[1-i].mode != MODE_BLOCKING:
+            me.mode = MODE_BLOCKING
+            proc_blocking(g, me, g.op_lead())
         else:
             me.mode = MODE_NORMAL
             proc_normal(g, me)
