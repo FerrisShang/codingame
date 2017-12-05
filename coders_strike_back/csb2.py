@@ -2,7 +2,7 @@
 import sys
 import math
 import time
-
+import random
 
 def debug(msg):
     print('DEBUG:'+msg, file=sys.stderr)
@@ -72,8 +72,9 @@ MODE_END = 2
 
 
 class Unit:
-    def __init__(self, g):
+    def __init__(self, g, idx):
         assert(isinstance(g, G))
+        self.idx = idx
         self.g = g
         self.boost = True
         self.shield = 0
@@ -121,7 +122,7 @@ class G:
         self.round = 0
         self.pods = []
         for _ in range(4):
-            self.pods.append(Unit(self))
+            self.pods.append(Unit(self, _))
         self.cps = []
         self.lap_num = int(input())
         self.cps_num = int(input())
@@ -157,12 +158,16 @@ class G:
         return p.lap * self.cps_num + p.nc_id
 
     def op_lead(self):
-        return self.pods[O1] if self.lep_num(self.pods[O1]) > self.lep_num(self.pods[O2]) else self.pods[O2]
+        return self.pods[O1] if self.lep_num(self.pods[O1])*100000 - \
+                                 dist(self.pods[O1].p, self.cps[self.pods[O1].nc_id]) > \
+                                self.lep_num(self.pods[O2])*100000 - \
+                                dist(self.pods[O2].p,self.cps[self.pods[O2].nc_id]) \
+            else self.pods[O2]
 
     @staticmethod
-    def target_regular(action, local_p):
+    def target_regular(action, local_p, enabled=True):
         _d = dist((action[0], action[1]), local_p)
-        if _d > 400:
+        if _d > 400 and enabled:
             _r = 400 / _d
             _act0 = local_p[0] + (action[0] - local_p[0]) * _r
             _act1 = local_p[1] + (action[1] - local_p[1]) * _r
@@ -191,8 +196,8 @@ class G:
         _s_op = Sim(x=op.p[0], y=op.p[1], ang=op.ang, vx=op.v[0], vy=op.v[1])
         (opx, opy, opang, opvx, opvy) = _s_op.update(self.cps[op.nc_id][0], self.cps[op.nc_id][1], 100)
         if dist((mx, my), (opx, opy)) <= G.pod_r * 2:
-            return abs(speed((mvx, mvy))*math.cos(dvan(me.p, op.p, (mvx, mvy))) +
-                       speed((opvx, opvy))*math.cos(dvan(op.p, me.p, (opvx, opvy))))
+            return abs(speed((mvx, mvy))*math.cos(math.radians(dvan(me.p, op.p, (mvx, mvy)))) +
+                       speed((opvx, opvy))*math.cos(math.radians(dvan(op.p, me.p, (opvx, opvy)))))
         else:
             return -1
 
@@ -244,7 +249,7 @@ def proc_end(g, me):
     assert(me.mode == MODE_END)
     nc_p = g.cps[me.nc_id]
     _re_ang = adan(me.ang, me.p, nc_p)
-    if abs(_re_ang) < 30:
+    if abs(_re_ang) < 20 and dvan(me.p, nc_p, me.v)< 20:
         me.act = (nc_p[0],  nc_p[1], 'BOOST' if me.boost else 100)
     elif abs(_re_ang) < 90:
         _x, _y = me.dest_real_ang(nc_p, -_re_ang)
@@ -263,7 +268,7 @@ def proc_normal(g, me):
     nnc_p = g.cps[(me.nc_id+1) % g.cps_num]
     _dist_tar = dist(me.p, nc_p)
     act_target = (None, None)
-    thrust = 100
+    thrust = 200
     if _dist_tar < 5000:
         for thrust in range(100, 90, -1):
             s = Sim(x=me.p[0], y=me.p[1], ang=me.ang, vx=me.v[0], vy=me.v[1])
@@ -287,7 +292,7 @@ def proc_normal(g, me):
             act_target = nc_p
         if dvan(me.p, act_target, me.v) > 120:
             thrust = 70
-    if dist(act_target, me.p) > 5000 and dvan(me.p, act_target, me.v) < 30:
+    if dist(act_target, me.p) > 5000 and dvan(me.p, act_target, me.v) < 18 and adan(me.ang, me.p, act_target) < 18:
         thrust = 'BOOST' if me.boost else 100
     me.act = (act_target[0], act_target[1], thrust)
     (_shield_re_v1, _shield_re_v2) = (g.is_coll(me, g.pods[O1]), g.is_coll(me, g.pods[O2]))
@@ -305,22 +310,79 @@ def proc_blocking(g, me, op):
     assert(isinstance(me, Unit))
     assert(isinstance(op, Unit))
     assert(me.mode == MODE_BLOCKING)
-    me.debug_msg = 'BLOCKING'
-    if vvan((me.p[0]-op.p[0], me.p[1]-op.p[1]), (g.cps[op.nc_id][0]-op.p[0], g.cps[op.nc_id][1]-op.p[1])) < 90:
-        _d_mo = dist(me.p, op.p)
-        if _d_mo > 3000 or dvan(me.p, op.p, op.v) > 50:
-            (_x, _y) = ((op.p[0] + op.v[0]*_d_mo/200), (op.p[1] + op.v[1]*_d_mo/200))
+    (_x, _y) = (None, None)
+    if vvan((me.p[0]-op.p[0], me.p[1]-op.p[1]), (g.cps[op.nc_id][0]-op.p[0], g.cps[op.nc_id][1]-op.p[1])) < 90 \
+            and dist(me.p, op.p) < 1500 and abs(adan(op.ang, op.p, me.p)) < 90 \
+            and speed((op.v[0]-me.v[0], op.v[1]-me.v[1])) < 300:
+        (_x, _y) = op.p
+        thrust = 200
+        me.debug_msg = 'BLOCKING CLOSE'
+    elif vvan((me.p[0]-op.p[0], me.p[1]-op.p[1]), (g.cps[op.nc_id][0]-op.p[0], g.cps[op.nc_id][1]-op.p[1])) < 90 \
+            or ((dvan(op.p, me.p, op.v)) < 60 and abs(adan(op.ang, op.p, me.p)) < 60):
+        _max_v = 10
+        _max_xy = []
+        for p_idx in range(70):
+            (_tx, _ty) = (random.randint(op.p[0]-4000, op.p[0]+4000), random.randint(op.p[1]-4000, op.p[1]+4000))
+            _s_op = Sim(x=op.p[0], y=op.p[1], ang=op.ang, vx=op.v[0], vy=op.v[1])
+            _s_me = Sim(x=me.p[0], y=me.p[1], ang=me.ang, vx=me.v[0], vy=me.v[1])
+            (mx, my, mang, mvx, mvy) = (0, 0, 0, 0, 0)
+            (opx, opy, opang, opvx, opvy) = (0, 0, 0, 0, 0)
+            _t = 40
+            for _t in range(40):
+                (mx, my, mang, mvx, mvy) = _s_me.update(_tx, _ty, 100)
+                (opx, opy, opang, opvx, opvy) = _s_op.update(g.cps[op.nc_id][0], g.cps[op.nc_id][1], speed(op.v) *
+                                                             [x for x in range(1, 50, 2)][int(dist(me.p, op.p)/1000)])
+                if dvan((opx, opy), (g.cps[op.nc_id][0], g.cps[op.nc_id][1]), (opvx, opvy)) > 80:
+                    break
+                if g.is_coll(me, g.pods[1-me.idx]) > 10:
+                    break
+                if dist((mx, my), (opx, opy)) < G.pod_r * 2:
+                    (_x, _y) = (_tx, _ty)
+                    break
+            if (_x, _y) != (None, None):
+                _vv = abs(speed((mvx, mvy))*math.cos(math.radians(dvan(me.p, op.p, (mvx, mvy)))) +
+                          speed((opvx, opvy))*math.cos(math.radians(dvan(op.p, me.p, (opvx, opvy)))))
+                if _vv > _max_v:
+                    _max_v = _vv
+                    _max_xy.append((_max_v, _x, _y, _t))
+        if len(_max_xy) > 0:
+            _max_xy.sort(key=lambda item: item[0]+(50-item[3])*20, reverse=True)
+            (_x, _y) = (_max_xy[0][1], _max_xy[0][2])
+            me.debug_msg = 'BLOCKING RANDOM'
+            thrust = 200
         else:
-            (_x, _y) = ((op.p[0] + op.v[0]*_d_mo/600), (op.p[1] + op.v[1]*_d_mo/600))
-        thrust = 100
+            _d_mo = dist(me.p, op.p)
+            if _d_mo > 3000 or dvan(op.p, me.p, op.v) > 80:
+                _m = [x for x in range(1, 50, 2)][int(dist(me.p, op.p)/1000)]
+                (_x, _y) = ((op.p[0] + op.v[0]*_m), (op.p[1] + op.v[1]*_m))
+                if dvan(me.p, op.p, me.v) > 90:
+                    thrust = 40
+                elif dvan(me.p, op.p, me.v) > 40:
+                    thrust = 60
+                else:
+                    thrust = 200
+            else:
+                _m = [x for x in range(1, 25)][int(dist(me.p, op.p)/1000)]
+                (_x, _y) = ((op.p[0] + op.v[0]*_m), (op.p[1] + op.v[1]*_m))
+                if dvan(me.p, op.p, me.v) > 90:
+                    thrust = 0
+                else:
+                    thrust = 200
+            me.debug_msg = 'BLOCKING CRASH'
     else:
-        (_x, _y) = g.cps[(op.nc_id+1) % g.cps_num]
-        thrust = dist((_x, _y), me.p) / 20
-        thrust = thrust if thrust < 100 else 100
+        if dist(me.p, g.cps[op.nc_id]) < 2000:
+            (_x, _y) = op.p
+            thrust = 40
+        else:
+            (_x, _y) = g.cps[(op.nc_id+1) % g.cps_num]
+            thrust = int(dist((_x, _y), me.p) / 30)
+            thrust = thrust if thrust < 100 else 100
+        me.debug_msg = 'BLOCKING ON THE WAY'
     me.act = (_x,  _y, thrust)
     (_shield_re_v1, _shield_re_v2) = (g.is_coll(me, op), g.is_coll(me, op))
-    if _shield_re_v1 > 100 or _shield_re_v2 > 100:
+    if _shield_re_v1 > 60 or _shield_re_v2 > 60:
         me.act = (me.act[0],  me.act[1], 'SHIELD')
+        me.debug_msg = 'BLOCKING SHIELD'
 
 
 def process(g):
@@ -330,7 +392,8 @@ def process(g):
         if me.lap == g.lap_num and me.nc_id == 0:  # last check point
             me.mode = MODE_END
             proc_end(g, me)
-        elif 0 < me.lap and g.lep_num(me) < g.lep_num(g.pods[1-i]) and g.pods[1-i].mode != MODE_BLOCKING:
+        elif me.mode == MODE_BLOCKING or ((3 < g.lep_num(me) or me.lap > 0) and
+                        g.lep_num(me) < g.lep_num(g.pods[1-i]) and g.pods[1-i].mode != MODE_BLOCKING):
             me.mode = MODE_BLOCKING
             proc_blocking(g, me, g.op_lead())
         else:
