@@ -9,7 +9,30 @@ from enum import Enum, IntEnum
 
 
 def debug(msg):
-    print(msg, file=sys.stderr)
+    print('DEBUG: '+msg, file=sys.stderr)
+
+
+class Time:
+    min_t = 1e9
+    max_t = 0
+    sum_t = 0
+    num = 0
+    count = 0
+
+    @staticmethod
+    def set():
+        Time.count = time.time()
+
+    @staticmethod
+    def get():
+        _t = time.time() - Time.count
+        Time.num += 1
+        Time.sum_t += _t
+        Time.min_t = min(_t, Time.min_t)
+        Time.max_t = max(_t, Time.max_t)
+        ave = Time.sum_t / Time.num
+        debug('Time:{} ms, min:{} ms, max:{} ms, ave:{} ms'.format(
+            int(_t*1000), int(Time.min_t*1000), int(Time.max_t*1000), int(ave*1000)))
 
 
 def dist(x1, y1, x2, y2):
@@ -32,6 +55,9 @@ class Entity:
         self.y = y
         self.p1 = p1
         self.p2 = p2
+
+    def __str__(self):
+        return 'Entity: T:{},({},{}),P1:{},P2:{}'.format(self.type, self.x, self.y, self.p1, self.p2)
 
 
 class C:
@@ -56,6 +82,7 @@ class G:
 
     def __init__(self):
         C()
+        Time().set()
         width, height, my_id = list(map(int, input().split()))
         G.w = width
         G.h = height
@@ -178,10 +205,7 @@ class G:
 
 def boom_num(g, x, y, r=3, entity_type=EntityType.Boxes.value):
     assert(isinstance(g, G))
-    if g.entities_map[y][x] and entity_type == g.entities_map[y][x].type:
-        cnt = 1
-    else:
-        cnt = 0
+    cnt = 0
     for p_bomb in C.get_dir_path_list(r):
         for p in p_bomb:
             (_x, _y) = (x+p[0], y+p[1])
@@ -192,6 +216,17 @@ def boom_num(g, x, y, r=3, entity_type=EntityType.Boxes.value):
                 elif g.entities_map[_y][_x].type != EntityType.Player.value:
                     break
     return cnt
+
+
+def wait_bomb(g):
+    assert(isinstance(g, G))
+    if g.me.p1 > 0:
+        return 0
+    _min = 8
+    for b in g.bombs:
+        if b.owner == G.my_id:
+            _min = min(_min, b.p1)
+    return _min
 
 
 def find_box(g, x, y, r, init_pos=(None,), flag_map=(None,), res=(None,)):
@@ -212,32 +247,46 @@ def find_box(g, x, y, r, init_pos=(None,), flag_map=(None,), res=(None,)):
     return res
 
 
-def get_all_pos(g, x, y, init_pos=(None,), flag_map=(None,), res=(None,)):
+def get_all_dist_pos(g, x, y, max_range=32, extra_block=None):
     assert(isinstance(g, G))
-    if flag_map == (None,):
-        flag_map = [[True for _ in range(G.w)] for _ in range(G.h)]
-        res = []
-        init_pos = (x, y)
-    if g.in_range(x, y) and flag_map[y][x]:
-        flag_map[y][x] = False
-        if g.path_map[y][x] or (init_pos == (x, y)):
-            res.append((x, y))
-            for d in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-                get_all_pos(g, x+d[0], y+d[1], init_pos=init_pos, flag_map=flag_map, res=res)
+    flag_map = [[True for _ in range(G.w)] for _ in range(G.h)]
+    flag_map[y][x] = False
+    res = [(0, (x, y))]
+    c_list = [(x, y), (x+1, y), (x-1, y), (x, y+1), (x, y-1)]
+    t_path = copy.deepcopy(g.path_map)
+    if extra_block:
+        for b in extra_block:
+            t_path[b[1]][b[0]] = False
+    for _ in range(1, max_range):
+        n_list = []
+        for p in c_list:
+            (x, y) = (p[0], p[1])
+            if g.in_range(x, y) and flag_map[y][x] and t_path[y][x]:
+                flag_map[y][x] = False
+                res.append((_, (x, y)))
+                for d in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                    n_list.append((x+d[0], y+d[1]))
+        c_list = n_list
+        if len(c_list) == 0:
+            return res
     return res
 
 
-def get_all_step(g, x, y):
+def get_all_step(g, x, y, extra_block=None):
     assert(isinstance(g, G))
     flag_map = [[True for _ in range(G.w)] for _ in range(G.h)]
     flag_map[y][x] = False
     res = [[(x, y)] for _ in range(8)]
     c_list = [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
+    t_path = copy.deepcopy(g.path_map)
+    if extra_block:
+        for b in extra_block:
+            t_path[b[1]][b[0]] = False
     for step in range(1, 8):
         n_list = []
         for p in c_list:
             (x, y) = (p[0], p[1])
-            if g.in_range(x, y) and flag_map[y][x] and g.path_map[y][x]:
+            if g.in_range(x, y) and flag_map[y][x] and t_path[y][x]:
                 flag_map[y][x] = False
                 for i in range(step, 8):
                     res[i].append((x, y))
@@ -292,70 +341,144 @@ def is_path_boom(g, path):
     return False
 
 
+def gen_bombs_players(g, exclude_id=None):
+    assert(isinstance(g, G))
+    if not exclude_id:
+        exclude_id = []
+    res = []
+    for p in g.players:
+        assert(isinstance(p, Entity))
+        if p.owner not in exclude_id and p.p1 > 0:
+            res.append(g.create_bomb(p.x, p.y, p.p2))
+    return res
+
+
 def is_dying(g, me_pos, extra_bombs=None, bombs_delay=0):
     assert(isinstance(g, G))
-    all_pos = get_all_step(g, me_pos[0], me_pos[1])
+    t_path = copy.deepcopy(g.path_map)
+    if extra_bombs:
+        for b in extra_bombs:
+            t_path[b.y][b.x] = False
+    extra_block = []
+    if extra_bombs:
+        extra_block = [(b.x, b.y) for b in extra_bombs]
+    all_pos = get_all_step(g, me_pos[0], me_pos[1], extra_block)
     death_map = g.get_death_map(extra_bombs, bombs_delay)
     p = all_pos[0][0]
     danger_flag = False
-    for i in range(1, 8):
+    for i in range(7, 0, -1):
         if death_map[i][p[1]][p[0]]:
             danger_flag = True
             break
     if danger_flag:
-        for i in range(1, 8):
-            alive_flag = False
-            for p in all_pos[i]:
-                if not death_map[i][p[1]][p[0]]:
-                    alive_flag = True
-                    break
-            if not alive_flag:
-                return True
-        return False
-    else:
-        return False
+        ol_dict = set()
+        for i in range(0, 8):
+            if i == 0:
+                ol_dict.add(me_pos)
+                continue
+            nl_dict = ol_dict
+            ol_dict = set()
+            for (_x, _y) in nl_dict:
+                for d in [(0, 0), (-1, 0), (0, -1), (1, 0), (0, 1)]:
+                    (x, y) = (_x+d[0], _y+d[1])
+                    if g.in_range(x, y) and not death_map[i][y][x]:
+                        if t_path[y][x] or (me_pos == (_x, _y) == (x, y)):
+                            ol_dict.add((x, y))
+        if len(ol_dict) == 0:
+            return True
+    return False
 
 
-def rand_pri(g, m_pos, t_pos):
-    (x, y) = (t_pos[0], t_pos[1])
-    is_item = g.entities_map[y][x].type == EntityType.Items.value if g.entities_map[y][x] else False
-    if is_item:
-        length = len(get_path(m_pos, t_pos, g.path_map))
-        return random.randint(0, 10) + length
-    else:
-        return random.randint(50, 60)
+def item_pri(g, t_dist_pos):
+    res = []
+    for _d, (x, y) in t_dist_pos:
+        is_item = g.entities_map[y][x].type == EntityType.Items.value if g.entities_map[y][x] else False
+        if is_item:
+            res.append([_d, (x, y)])
+        else:
+            b_delay = wait_bomb(g)
+            b_num = boom_num(g, x, y, g.me.p2, EntityType.Boxes.value)
+            if b_num > 0:
+                res.append([b_delay + 4-b_num+_d, (x, y)])
+    return res
 
 
 def process(g):
     assert(isinstance(g, G))
-    _tx, _ty = (g.me.x, g.me.y)
+    _tx, _ty = (-1, -1)
     target = None
-    if g.me.p1 > 0:
+    # terminate judgement
+    if g.me.p1 > 0 and g.path_map[g.me.y][g.me.x] and boom_num(g, g.me.x, g.me.y, g.me.p2, EntityType.Player.value) > 0:
+        if not is_dying(g, (g.me.x, g.me.y), gen_bombs_players(g), 0):
+            debug('Hmmmm....')
+            for p in g.players:
+                if p.owner == G.my_id or (p.x != g.me.x and p.y != g.me.y) or dist(p.x, p.y, g.me.x, g.me.y) > g.me.p2:
+                    continue
+                if is_dying(g, (p.x, p.y), gen_bombs_players(g, exclude_id=[p.owner]), 0):
+                    debug('Yooooo !!!')
+                    target = (g.me.x, g.me.y)
+    # find box
+    if not target and g.me.p1 > 0:
         box_pos = find_box(g, g.me.x, g.me.y, g.me.p2)
-        box_pos.sort(key=lambda n: (len(get_path((g.me.x, g.me.y), (n[1], n[2]), g.path_map))) / n[0])
+        extra_weight = 1 if g.me.p1 == 1 else 1
+        box_pos.sort(key=lambda n: (extra_weight+len(get_path((g.me.x, g.me.y), (n[1], n[2]), g.path_map))) / n[0])
         for p in box_pos:
             ref_pos = (p[1], p[2])
             _path = get_path((g.me.x, g.me.y), ref_pos, g.path_map)
-            if is_path_boom(g, _path) or is_dying(g, ref_pos, [g.create_bomb(ref_pos[0], ref_pos[1])], len(_path)):
+            _bombs = gen_bombs_players(g, exclude_id=[G.my_id])+[g.create_bomb(ref_pos[0], ref_pos[1])]
+            if is_path_boom(g, _path) or is_dying(g, ref_pos, _bombs, len(_path)):
                 continue
             target = (p[1], p[2])
             _tx, _ty = (_path[0][0], _path[0][1])
+            debug('TargetBox:({}, {}), pri:{}'.format(p[1], p[2], p[0]))
             break
-    debug('C:({},{}) T:({},{})'.format(g.me.x, g.me.y, target[0] if target else -1, target[1] if target else -1))
-    if not target:
-        all_pos = get_all_pos(g, g.me.x, g.me.y)
-        all_pos.sort(key=lambda _p: rand_pri(g, (g.me.x, g.me.y), _p))
-        for _pos in all_pos:
-            _path = get_path((g.me.x, g.me.y), (_pos[0], _pos[1]), g.path_map)
-            if is_path_boom(g, _path) or is_dying(g, _pos, bombs_delay=len(_path)):
+    # item on path of target
+    for d in [(-1, 0), (0, -1), (1, 0), (0, 1)]:
+        (x, y) = (g.me.x+d[0], g.me.y+d[1])
+        if G.in_range(x, y) and g.entities_map[y][x] and g.entities_map[y][x].type == EntityType.Items.value:
+            _path = [(x, y)]
+            bombs = gen_bombs_players(g, exclude_id=[] if target == (g.me.x, g.me.y) else [G.my_id])
+            if is_path_boom(g, _path) or is_dying(g, (x, y), bombs, len(_path)):
                 continue
             _tx, _ty = (_path[0][0], _path[0][1])
+            debug('Item on path:({}, {})'.format(x, y))
             break
+    # no target & no item on path
+    if target == (g.me.x, g.me.y) or (_tx, _ty) == (-1, -1):
+        all_dist_pos = get_all_dist_pos(g, g.me.x, g.me.y)
+        all_pos_pri = item_pri(g, all_dist_pos)
+        all_pos_pri.sort(key=lambda item: item[0])
+        for pri, _pos in all_pos_pri:
+            _path = get_path((g.me.x, g.me.y), (_pos[0], _pos[1]), g.path_map)
+            bombs = gen_bombs_players(g, exclude_id=[] if target == (g.me.x, g.me.y) else [G.my_id])
+            if is_path_boom(g, _path) or is_dying(g, _pos, bombs, len(_path)):
+                continue
+            _tx, _ty = (_path[0][0], _path[0][1])
+            debug('seek item:({}, {})'.format(_tx, _ty))
+            break
+    # need random walk
+    if target == (g.me.x, g.me.y) or (_tx, _ty) == (-1, -1):
+        all_dist_pos = get_all_dist_pos(g, g.me.x, g.me.y)
+        for _, (x, y) in all_dist_pos:
+            if g.path_map[y][x] or (x, y) == (g.me.x, g.me.y):
+                _path = get_path((g.me.x, g.me.y), (x, y), g.path_map)
+                bombs = gen_bombs_players(g, exclude_id=[] if target == (g.me.x, g.me.y) else [G.my_id])
+                if is_path_boom(g, _path) or is_dying(g, (x, y), bombs, len(_path)):
+                    continue
+                _tx, _ty = (_path[0][0], _path[0][1])
+                debug('Random walk:({}, {})'.format(_tx, _ty))
+                break
+    if (_tx, _ty) == (-1, -1):
+        debug('No where to go !!')
+    debug('C:({},{}) T:({},{})'.format(g.me.x, g.me.y, target[0] if target else -1, target[1] if target else -1))
     if target == (g.me.x, g.me.y):
         _act = 'BOMB'
     else:
         _act = 'MOVE'
-    return '{} {} {}'.format(_act, _tx, _ty)
+    if (_tx, _ty) == (-1, -1):
+        return '{} {} {} ???'.format(_act, _tx, _ty)
+    else:
+        return '{} {} {}'.format(_act, _tx, _ty)
 
 
 def run():
@@ -364,10 +487,11 @@ def run():
     # game loop
     while True:
         g.update_round()
-        _time_cnt = time.time()
+        debug('----------------')
+        Time().set()
         action = process(g)
-        debug('T: {}ms'.format(int((time.time() - _time_cnt)*1000)))
         print(action)
+        Time.get()
 
 if __name__ == '__main__':
     run()
