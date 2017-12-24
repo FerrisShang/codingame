@@ -34,6 +34,10 @@ class Time:
         debug('Time:{} ms, min:{} ms, max:{} ms, ave:{} ms'.format(
             int(_t*1000), int(Time.min_t*1000), int(Time.max_t*1000), int(ave*1000)))
 
+    @staticmethod
+    def left():
+        return 100 - int((time.time() - Time.count)*1000)
+
 
 def dist(x1, y1, x2, y2):
     return abs(x1-y1)+abs(x2-y2)
@@ -67,11 +71,11 @@ class C:
         C.dir_path_list = [[[(x, 0) for x in range(1, r)],
                            [(x, 0) for x in range(-1, -r, -1)],
                            [(0, y) for y in range(1, r)],
-                           [(0, y) for y in range(-1, -r, -1)]] for r in range(0, 15)]
+                           [(0, y) for y in range(-1, -r, -1)]] for r in range(0, 50)]
 
     @staticmethod
     def get_dir_path_list(r):
-        assert 3 <= r <= 13
+        assert 3 <= r <= 49
         return C.dir_path_list[r]
 
 
@@ -95,7 +99,9 @@ class G:
         self.bombs = None
         self.items = None
         self.boxes = None
+        self.safebox_map = None
         self.max_bomb_range = 3
+        self.round = 0
 
     def update_round(self):
         self.path_map = [[True for _ in range(self.w)] for _ in range(self.h)]
@@ -104,6 +110,7 @@ class G:
         self.bombs = []
         self.items = []
         self.boxes = []
+        self.round += 1
 
         for h in range(G.h):
             rows = input()
@@ -129,13 +136,56 @@ class G:
                 self.bombs.append(entity)
             elif entity.type == EntityType.Items.value:
                 self.items.append(entity)
+        Time().set()
         self.max_bomb_range = max([item.p2 for item in self.players])
         self.death_map = self.get_death_map()
+        self.safebox_map = self.get_safebox_map()
 
-    def get_death_map(self, extra_bombs=None, bombs_delay=0, e_map=(None,), bombs=(None,), d_map=(None,)):
+    def get_safebox_map(self, extra_bombs=None):
+        res = [[False for _ in range(self.w)] for _ in range(self.h)]
+        bombs = self.bombs + (extra_bombs if extra_bombs else [])
+        for box in self.boxes:
+            touch_flag = False
+            for bomb in bombs:
+                if bomb.x != box.x and bomb.y != box.y:
+                    continue
+                dirs = C.get_dir_path_list(bomb.p2)
+                for dir in dirs:
+                    for d in dir:
+                        if bomb.x+d[0] == box.x and bomb.y+d[1] == box.y:
+                            touch_flag = True
+                            break
+                        if self.entities_map[bomb.y][bomb.x] and self.entities_map[bomb.y][bomb.x].type != EntityType.Player.value:
+                            continue
+                    if touch_flag:
+                        break
+            if not touch_flag:
+                res[box.y][box.x] = True
+        return res
+
+    def _cal_conn_bombs(self, e_map, bombs, least_boom):
+        num_bombs = len(bombs)
+        for i in range(num_bombs):
+            for j in range(num_bombs):
+                if (bombs[i].p1 == least_boom and bombs[j].p1 != least_boom) or \
+                        (bombs[i].p1 != least_boom and bombs[j].p1 == least_boom):
+                    if G.conn_boom(e_map, bombs[i], bombs[j]):
+                        # debug('({},{}),{},{} <----> ({},{}),{},{}'.
+                        #       format(bombs[i].x, bombs[i].y ,bombs[i].p1, bombs[i].p2,
+                        #              bombs[j].x, bombs[j].y ,bombs[j].p1, bombs[j].p2))
+                        bombs[i].p1 = least_boom
+                        bombs[j].p1 = least_boom
+                        return self._cal_conn_bombs(e_map, bombs, least_boom)
+        return bombs
+
+    def get_death_map(self, extra_bombs=None, bombs_delay=0, remove_items_pos=None, e_map=(None,), bombs=(None,), d_map=(None,)):
         if d_map == (None,):
             d_map = [[[False for _ in range(G.w)] for _ in range(G.h)] for _ in range(8)]
             e_map = copy.deepcopy(self.entities_map)
+            if remove_items_pos:
+                for (x, y) in remove_items_pos:
+                    if e_map[y][x] and e_map[y][x].type == EntityType.Items.value:
+                        e_map[y][x] = None
             bombs = copy.deepcopy(self.bombs)
             for i in range(len(bombs)-1, -1, -1):
                 if bombs[i].p1 - bombs_delay <= 0:
@@ -143,17 +193,12 @@ class G:
                 else:
                     bombs[i].p1 -= bombs_delay
             bombs += (extra_bombs if extra_bombs else [])
-        # cal conn bombs
         num_bombs = len(bombs)
         if num_bombs == 0:
             return d_map
         least_boom = min(bombs, key=lambda _bomb: _bomb.p1).p1
-        for i in range(num_bombs):
-            for j in range(num_bombs):
-                if i != j and (bombs[i].p1 == least_boom or bombs[j].p1 == least_boom):
-                    if G.conn_boom(e_map, bombs[i], bombs[j]):
-                        bombs[i].p1 = least_boom
-                        bombs[j].p1 = least_boom
+        # cal conn bombs
+        bombs = self._cal_conn_bombs(e_map, bombs, least_boom)
         # cal update death_map
         destroy_entities_list = []
         for i in range(num_bombs):
@@ -165,7 +210,7 @@ class G:
                             break
                         e = e_map[bombs[i].y+p[1]][bombs[i].x+p[0]]
                         d_map[bombs[i].p1-1][bombs[i].y+p[1]][bombs[i].x+p[0]] = True
-                        if e and e.type != EntityType.Player.value and e.type != EntityType.Items.value:
+                        if e and e.type != EntityType.Player.value:
                             destroy_entities_list.append((bombs[i].x+p[0], bombs[i].y+p[1]))
                             break
         # remove bombs
@@ -177,7 +222,6 @@ class G:
             e_map[pos[1]][pos[0]] = None
         # iter d_map
         self.get_death_map(e_map=e_map, bombs=bombs, d_map=d_map)
-
         return d_map
 
     def create_bomb(self, x, y, r=None):
@@ -185,13 +229,16 @@ class G:
 
     @staticmethod
     def conn_boom(e_map, b1, b2):
-        m = max(b1.p2, b2.p2)
-        if b1.x == b2.x and m > abs(b1.y - b2.y):
+        if b1.x == b2.x and \
+                ((b1.p1 <= b2.p1 and b1.p2 > abs(b1.y - b2.y)) or
+                (b2.p1 <= b1.p1 and b2.p2 > abs(b1.y - b2.y))):
             for _y in range(b1.y+1, b2.y) if b2.y > b1.y else range(b2.y+1, b1.y):
                 if G.in_range(b1.x, _y) and e_map[_y][b1.x] and e_map[_y][b1.x].type != EntityType.Player.value:
                     return False
             return True
-        elif b1.y == b2.y and m > abs(b1.x - b2.x):
+        elif b1.y == b2.y and \
+                ((b1.p1 <= b2.p1 and b1.p2 > abs(b1.x - b2.x)) or
+                (b2.p1 <= b1.p1 and b2.p2 > abs(b1.x - b2.x))):
             for _x in range(b1.x+1, b2.x) if b2.x > b1.x else range(b2.x+1, b1.x):
                 if G.in_range(_x, b1.y) and e_map[b1.y][_x] and e_map[b1.y][_x].type != EntityType.Player.value:
                     return False
@@ -211,6 +258,21 @@ def boom_num(g, x, y, r=3, entity_type=EntityType.Boxes.value):
             (_x, _y) = (x+p[0], y+p[1])
             if g.in_range(_x, _y) and g.entities_map[_y][_x]:
                 if entity_type == g.entities_map[_y][_x].type:
+                    cnt += 1
+                    break
+                elif g.entities_map[_y][_x].type != EntityType.Player.value:
+                    break
+    return cnt
+
+
+def boom_safebox_num(g, x, y, r=3):
+    assert(isinstance(g, G))
+    cnt = 0
+    for p_bomb in C.get_dir_path_list(r):
+        for p in p_bomb:
+            (_x, _y) = (x+p[0], y+p[1])
+            if g.in_range(_x, _y) and g.entities_map[_y][_x]:
+                if g.safebox_map[_y][_x]:
                     cnt += 1
                     break
                 elif g.entities_map[_y][_x].type != EntityType.Player.value:
@@ -239,7 +301,8 @@ def find_box(g, x, y, r, init_pos=(None,), flag_map=(None,), res=(None,)):
         flag_map[y][x] = False
         if g.path_map[y][x] or init_pos == (x, y):
             if g.path_map[y][x] or g.entities_map[y][x].type != EntityType.Bomb.value:
-                num = boom_num(g, x, y, r, EntityType.Boxes.value)
+                # num = boom_num(g, x, y, r, EntityType.Boxes.value)
+                num = boom_safebox_num(g, x, y, r)
                 if num > 0:
                     res.append([num, x, y])
             for d in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
@@ -353,7 +416,7 @@ def gen_bombs_players(g, exclude_id=None):
     return res
 
 
-def is_dying(g, me_pos, extra_bombs=None, bombs_delay=0):
+def is_dying(g, me_pos, extra_bombs=None, bombs_delay=0, remove_items_pos=None):
     assert(isinstance(g, G))
     t_path = copy.deepcopy(g.path_map)
     if extra_bombs:
@@ -363,10 +426,12 @@ def is_dying(g, me_pos, extra_bombs=None, bombs_delay=0):
     if extra_bombs:
         extra_block = [(b.x, b.y) for b in extra_bombs]
     all_pos = get_all_step(g, me_pos[0], me_pos[1], extra_block)
-    death_map = g.get_death_map(extra_bombs, bombs_delay)
+    death_map = g.get_death_map(extra_bombs, bombs_delay, remove_items_pos)
     p = all_pos[0][0]
+    if death_map[0][p[1]][p[0]]:
+        return True
     danger_flag = False
-    for i in range(7, 0, -1):
+    for i in range(7, -1, -1):
         if death_map[i][p[1]][p[0]]:
             danger_flag = True
             break
@@ -397,7 +462,7 @@ def item_pri(g, t_dist_pos):
             res.append([_d, (x, y)])
         else:
             b_delay = wait_bomb(g)
-            b_num = boom_num(g, x, y, g.me.p2, EntityType.Boxes.value)
+            b_num = boom_safebox_num(g, x, y)
             if b_num > 0:
                 res.append([b_delay + 4-b_num+_d, (x, y)])
     return res
@@ -407,76 +472,107 @@ def process(g):
     assert(isinstance(g, G))
     _tx, _ty = (-1, -1)
     target = None
+    debug_msg = None
     # terminate judgement
     if g.me.p1 > 0 and g.path_map[g.me.y][g.me.x] and boom_num(g, g.me.x, g.me.y, g.me.p2, EntityType.Player.value) > 0:
-        if not is_dying(g, (g.me.x, g.me.y), gen_bombs_players(g), 0):
-            debug('Hmmmm....')
+        if not is_dying(g, (g.me.x, g.me.y), gen_bombs_players(g), 1):
+            debug_msg = 'Hmmmm....'
             for p in g.players:
                 if p.owner == G.my_id or (p.x != g.me.x and p.y != g.me.y) or dist(p.x, p.y, g.me.x, g.me.y) > g.me.p2:
                     continue
-                if is_dying(g, (p.x, p.y), gen_bombs_players(g, exclude_id=[p.owner]), 0):
-                    debug('Yooooo !!!')
+                if is_dying(g, (p.x, p.y), gen_bombs_players(g, exclude_id=[p.owner]), 1):
+                    debug_msg = 'Yooooo !!!'
                     target = (g.me.x, g.me.y)
     # find box
     if not target and g.me.p1 > 0:
         box_pos = find_box(g, g.me.x, g.me.y, g.me.p2)
-        extra_weight = 1 if g.me.p1 == 1 else 1
+        extra_weight = 1 if g.me.p1 <= 2 else 0
         box_pos.sort(key=lambda n: (extra_weight+len(get_path((g.me.x, g.me.y), (n[1], n[2]), g.path_map))) / n[0])
         for p in box_pos:
             ref_pos = (p[1], p[2])
             _path = get_path((g.me.x, g.me.y), ref_pos, g.path_map)
             _bombs = gen_bombs_players(g, exclude_id=[G.my_id])+[g.create_bomb(ref_pos[0], ref_pos[1])]
-            if is_path_boom(g, _path) or is_dying(g, ref_pos, _bombs, len(_path)):
+            if is_path_boom(g, _path):
                 continue
-            target = (p[1], p[2])
-            _tx, _ty = (_path[0][0], _path[0][1])
-            debug('TargetBox:({}, {}), pri:{}'.format(p[1], p[2], p[0]))
+            if Time.left() > 10 and is_dying(g, _path[0], _bombs, 1, [_path[0]]):
+                continue
+            if Time.left() > 10 and is_dying(g, ref_pos, _bombs, len(_path), [ref_pos]):
+                continue
+            if (g.me.x, g.me.y) == (p[1], p[2]):
+                target = (g.me.x, g.me.y)
+            else:
+                _tx, _ty = (_path[0][0], _path[0][1])
+            debug_msg = 'Box:({}, {})'.format(p[1], p[2])
+            debug(debug_msg)
             break
     # item on path of target
     for d in [(-1, 0), (0, -1), (1, 0), (0, 1)]:
         (x, y) = (g.me.x+d[0], g.me.y+d[1])
+        if not(target == (g.me.x, g.me.y) or (_tx, _ty) == (-1, -1)) and not g.round > 50 or g.me.p1 > 1:
+            continue
         if G.in_range(x, y) and g.entities_map[y][x] and g.entities_map[y][x].type == EntityType.Items.value:
             _path = [(x, y)]
             bombs = gen_bombs_players(g, exclude_id=[] if target == (g.me.x, g.me.y) else [G.my_id])
-            if is_path_boom(g, _path) or is_dying(g, (x, y), bombs, len(_path)):
+            if is_path_boom(g, _path) or is_dying(g, (x, y), bombs, len(_path), [(x, y)]):
                 continue
             _tx, _ty = (_path[0][0], _path[0][1])
-            debug('Item on path:({}, {})'.format(x, y))
+            debug_msg = 'Item:({}, {})'.format(x, y)
+            debug(debug_msg)
             break
-    # no target & no item on path
-    if target == (g.me.x, g.me.y) or (_tx, _ty) == (-1, -1):
+    # no target & no item on path -> seek items
+    if [g.safebox_map[y][x] for x in range(G.w) for y in range(G.h)].count(True) > 0 and (_tx, _ty) == (-1, -1):
         all_dist_pos = get_all_dist_pos(g, g.me.x, g.me.y)
         all_pos_pri = item_pri(g, all_dist_pos)
         all_pos_pri.sort(key=lambda item: item[0])
+        debug('{}'.format(all_dist_pos))
         for pri, _pos in all_pos_pri:
             _path = get_path((g.me.x, g.me.y), (_pos[0], _pos[1]), g.path_map)
             bombs = gen_bombs_players(g, exclude_id=[] if target == (g.me.x, g.me.y) else [G.my_id])
-            if is_path_boom(g, _path) or is_dying(g, _pos, bombs, len(_path)):
+            if is_path_boom(g, _path):
+                continue
+            if Time.left() > 10 and is_dying(g, _path[0], bombs, 1, [_path[0]]):
+                continue
+            if Time.left() > 10 and is_dying(g, _pos, bombs, len(_path), [_pos]):
                 continue
             _tx, _ty = (_path[0][0], _path[0][1])
-            debug('seek item:({}, {})'.format(_tx, _ty))
+            debug_msg = 'Seek:({}, {})'.format(_tx, _ty)
+            debug(debug_msg)
             break
     # need random walk
-    if target == (g.me.x, g.me.y) or (_tx, _ty) == (-1, -1):
+    if (_tx, _ty) == (-1, -1):
         all_dist_pos = get_all_dist_pos(g, g.me.x, g.me.y)
+        all_dist_pos.sort(reverse=True)
         for _, (x, y) in all_dist_pos:
             if g.path_map[y][x] or (x, y) == (g.me.x, g.me.y):
+                if [g.safebox_map[y][x] for x in range(G.w) for y in range(G.h)].count(True) == 0 and \
+                                [g.death_map[i][y][x] for i in range(8)].count(True) > 0:
+                    continue
                 _path = get_path((g.me.x, g.me.y), (x, y), g.path_map)
                 bombs = gen_bombs_players(g, exclude_id=[] if target == (g.me.x, g.me.y) else [G.my_id])
-                if is_path_boom(g, _path) or is_dying(g, (x, y), bombs, len(_path)):
+                if is_path_boom(g, _path):
                     continue
+                if Time.left() > 10 and is_dying(g, (x, y), bombs, len(_path), [(x, y)]):
+                    continue
+                if Time.left() > 10 and is_dying(g, _path[0], bombs, 1, [(x, y)]):
+                    continue
+
                 _tx, _ty = (_path[0][0], _path[0][1])
-                debug('Random walk:({}, {})'.format(_tx, _ty))
+                debug_msg = 'Rand:({}, {})'.format(_tx, _ty)
+                debug(debug_msg)
                 break
+
     if (_tx, _ty) == (-1, -1):
-        debug('No where to go !!')
+        debug_msg = 'OMG !!'
+        debug(debug_msg)
+        _tx, _ty = (g.me.x, g.me.y)
+        target = (g.me.x, g.me.y)
     debug('C:({},{}) T:({},{})'.format(g.me.x, g.me.y, target[0] if target else -1, target[1] if target else -1))
     if target == (g.me.x, g.me.y):
         _act = 'BOMB'
     else:
         _act = 'MOVE'
-    if (_tx, _ty) == (-1, -1):
-        return '{} {} {} ???'.format(_act, _tx, _ty)
+    if debug_msg:
+        return '{} {} {} {}'.format(_act, _tx, _ty, debug_msg)
     else:
         return '{} {} {}'.format(_act, _tx, _ty)
 
@@ -488,7 +584,6 @@ def run():
     while True:
         g.update_round()
         debug('----------------')
-        Time().set()
         action = process(g)
         print(action)
         Time.get()
