@@ -541,8 +541,10 @@ class G:
 
 class Arbiter:
     g = None
-    hero_status = [[(0,)], [(0,)]]  # [[HeroStatus], [HeroStatus]]
+    hero_status = [[0], [0]]  # [[HeroStatus], [HeroStatus]]
+    hero_old_status = [[0], [0]]  # [[HeroStatus], [HeroStatus]]
     my_heroes = []
+    towers = []
     heroes_attack_points = [[], []]
     unit_front_list = []
     op_unit_front_list = []
@@ -574,6 +576,10 @@ class Arbiter:
         Arbiter.g = game_info
 
     @staticmethod
+    def is_safe(g, hero):
+        return True
+
+    @staticmethod
     def update_round_param(g):
         assert(isinstance(g, G))
         Arbiter.my_heroes = [None for _ in range(2)]
@@ -582,6 +588,9 @@ class Arbiter:
                 Arbiter.my_heroes[0] = _
             elif _.team == g.team_num and _.heroType == g.me_heroes_type[1]:
                 Arbiter.my_heroes[1] = _
+        Arbiter.towers = [None for _ in range(2)]
+        for _ in Arbiter.g.u[UnitType.TOWER]:
+                Arbiter.towers[_.team] = _
         Arbiter.unit_front_list = U.unit_sorted_by_front(g.u, UnitType.UNIT, g.team_num)
         Arbiter.op_unit_front_list = U.unit_sorted_by_front(g.u, UnitType.UNIT, g.op_team)
         Arbiter.unit_health_list = U.unit_sorted_by_health(g.u, UnitType.UNIT, g.team_num)
@@ -604,6 +613,7 @@ class Arbiter:
         unit_health_list = Arbiter.unit_health_list
         op_unit_health_list = Arbiter.op_unit_health_list
         attack_points = Arbiter.heroes_attack_points[hero_idx]
+        towers = Arbiter.towers
         for s in Arbiter.HeroAction:
             if s == Arbiter.HeroAction.ESCAPE_HERO:
                 # _tmp = 0
@@ -612,14 +622,86 @@ class Arbiter:
                 _r = None
             elif s == Arbiter.HeroAction.ESCAPE_AGGRO:
                 _r = None
+                debug('AGGRO:hero-{} {}'.format(hero_idx, Arbiter.hero_old_status[hero_idx][Arbiter.HeroStatus.AGGRO.value]))
+                aggro = Arbiter.hero_old_status[hero_idx][Arbiter.HeroStatus.AGGRO.value]
+                if aggro > 0:
+                    Arbiter.hero_status[hero_idx][Arbiter.HeroStatus.AGGRO.value] = aggro - 1
+                    _r = ('MOVE {} {}'.format(int(hero.x - U.num_front(hero) * (U.get_shoot_range(hero))), hero.y),)
             elif s == Arbiter.HeroAction.SKILLS:
                 _r = None
             elif s == Arbiter.HeroAction.ATTACK_HERO:
                 _r = None
-            elif s == Arbiter.HeroAction.ATTACK_TOWER:
+                for op_hero in g.u[UnitType.HERO]:
+                    if op_hero.team == g.op_team and U.get_shoot_range(hero) > M.dist_e(hero, op_hero):
+                        for p in attack_points:  # no op_hero attack me
+                            if M.dist(hero.x+p[0], hero.y+p[1], op_hero.x, op_hero.y) < hero.attackRange:
+                                safe_flag = True
+                                for op_unit in g.u[UnitType.HERO] + g.u[UnitType.UNIT] + g.u[UnitType.TOWER]:
+                                    if M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y) < op_unit.attackRange and op_unit.unitId != op_hero and op_unit.team == g.op_team:
+                                        safe_flag = False
+                                        break
+                                if safe_flag:
+                                    debug('ATTACK HERO:{}'.format(op_hero.unitId))
+                                    _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_hero.unitId),)
+                                    Arbiter.hero_status[hero_idx][Arbiter.HeroStatus.AGGRO.value] = 3
+                                    break
+                        if _r:
+                            break
+            elif s == Arbiter.HeroAction.ATTACK_TOWER:  # !!! NOT Checked
                 _r = None
+                if len(unit_front_list) == 0 or U.get_shoot_range(hero) < M.dist_e(hero, towers[g.op_team]):
+                    continue
+                exit_flag = True  # Check if there is a unit in tower's attack range
+                for _i in range(len(unit_front_list)):
+                    unit = unit_front_list[_i]
+                    if M.dist_e(unit, towers[g.op_team]) < towers[g.op_team].attackRange:
+                        _dec_heal = g.id_dict[unit.unitId][1].health - unit.health
+                        if unit.health - _dec_heal > 10:
+                            exit_flag = False
+                            break
+                if exit_flag:
+                    continue
+                exit_flag = False  # Check if no op_unit will attack me
+                for op_unit in op_unit_front_list:
+                    safe_flag = False
+                    for unit in unit_front_list:
+                        if M.dist_e(unit, op_unit) < op_unit.attackRange:
+                            _dec_heal = g.id_dict[unit.unitId][1].health - unit.health
+                            if unit.health - _dec_heal > 5:
+                                safe_flag = True
+                                break
+                    if not safe_flag:
+                        exit_flag = True
+                        break
+                if exit_flag:
+                    continue
+                for p in attack_points:  # no op_hero attack me
+                    safe_flag = True
+                    for op_hero in g.u[UnitType.HERO]:
+                        if op_hero.unitId == g.op_team and \
+                                op_hero.attackRange < M.dist(hero.x+p[0], hero.y+p[1], op_hero.x, op_hero.y):
+                            safe_flag = False
+                            break
+                    if safe_flag:
+                        _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], towers[g.op_team].unitId),)
+                        break
+
             elif s == Arbiter.HeroAction.LAST_HIT:
                 _r = None
+                if unit_front_list:
+                    for op_unit in op_unit_health_list:
+                        _dec_heal = g.id_dict[op_unit.unitId][1].health - op_unit.health
+                        if not (hero.attack_damage >= op_unit.health - _dec_heal > 0) or len(unit_front_list) == 0 or \
+                                U.get_shoot_range(hero) < M.dist_e(hero, op_unit):
+                            continue
+                        for p in attack_points:
+                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
+                                if unit_front_list[0].health > 100:
+                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y):
+                                        _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_unit.unitId),)
+                                        break
+                        if _r:
+                            break
             elif s == Arbiter.HeroAction.DENY:
                 _r = None
                 if unit_front_list:
@@ -638,6 +720,13 @@ class Arbiter:
                             break
             elif s == Arbiter.HeroAction.BUY:
                 _r = None
+                for unit in unit_health_list:
+                    if U.is_entity_front(hero, unit):
+                        break
+                    _dec_heal = g.id_dict[unit.unitId][1].health - unit.health
+                    if unit.health > _dec_heal and g.me_gold > 70 and hero.max_health - hero.health > 100:
+                        _r = ('BUY larger_potion',)
+                        break
             elif s == Arbiter.HeroAction.SELL:
                 _r = None
             elif s == Arbiter.HeroAction.ATTACK_UNIT:
@@ -654,15 +743,14 @@ class Arbiter:
                                         break
                         if _r:
                             break
-
             elif s == Arbiter.HeroAction.FOLLOW_UNIT:
                 _r = None
                 if len(unit_front_list) > 0:
                     for u in unit_front_list:
                         assert(isinstance(u, RoundEntity))
-                        if u.health > 80:
+                        if u.health > 120:
                             _r = ('MOVE {} {}'.format(u.x - U.num_front(g.team_num)*20+random.randint(-5, 5),
-                                                        u.y + random.randint(-100, 100)),)
+                                                      u.y + random.randint(-100, 100)),)
                             break
             elif s == Arbiter.HeroAction.FOLLOW_GROOT:
                 _r = None
@@ -697,7 +785,10 @@ class Arbiter:
         for _idx in range(len(Arbiter.my_heroes)):
             _choices = Arbiter.gen_choices(g, _idx)
             _heroes_choices[_idx] = _choices
-        return Arbiter.gen_action(g, _heroes_choices)
+        _res = Arbiter.gen_action(g, _heroes_choices)
+        Arbiter.hero_old_status = Arbiter.hero_status
+        Arbiter.hero_status = [[0], [0]]  # [[HeroStatus], [HeroStatus]]
+        return _res
 
 
 def process(g):
@@ -716,6 +807,6 @@ if __name__ == '__main__':
         print(_g.get_hero())
     while True:
         _g.round_init()
-        Time.set()
+        # Time.set()
         process(_g)
-        Time.get()
+        # Time.get()
