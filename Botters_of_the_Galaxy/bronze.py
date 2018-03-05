@@ -195,7 +195,22 @@ from queue import PriorityQueue
 class M:  # math function
     @staticmethod
     def dist(x1, y1, x2, y2):
-        return math.sqrt((x1-x2)**2+(y1-y2)**2)
+        x = x1 - x2
+        y = y1 - y2
+        if x < 0:
+            x = -x
+        if y < 0:
+            y = -y
+        try:
+            return G.dist_map[y][x]
+        except:
+            if x > y:
+                _max = x
+                _min = y
+            else:
+                _max = y
+                _min = x
+            return _max + _min * 22 / 64
 
     @staticmethod
     def dist_e(e1, e2):
@@ -215,6 +230,16 @@ class U:
             return 1 - e_or_n - e_or_n
 
     @staticmethod
+    def is_entity_front(e_pos, ref, e_pos_team=None):
+        assert(isinstance(ref, RoundEntity))
+        if isinstance(e_pos, RoundEntity):
+            e_pos_team = e_pos.team
+            return (e_pos.x - ref.x >= 0 and e_pos_team == 0) or (e_pos.x - ref.x <= 0 and e_pos_team == 1)
+        else:  # e_pos is a point, etc: (0,0)
+            assert(e_pos_team == 0 or e_pos_team == 1)
+            return (e_pos[0] - ref.x >= 0 and e_pos_team == 0) or (e_pos[0] - ref.x <= 0 and e_pos_team == 1)
+
+    @staticmethod
     def get_range_pos(hero):
         assert(isinstance(hero, RoundEntity))
         if hero.movement_speed in U.range_point_dict:
@@ -222,8 +247,8 @@ class U:
         else:
             l = int(hero.movement_speed * 0.9)
             _res = []
-            for _x in range(-l, l, 10):
-                for _y in range(-l, l, 10):
+            for _x in range(-l, l, 30):
+                for _y in range(-l, l, 30):
                     if M.dist(_x, _y, 0, 0) < l:
                         _res.append((_x, _y))
             U.range_point_dict[hero.movement_speed] = _res
@@ -253,16 +278,16 @@ class U:
                     res = _
         return _min_dis, res
 
-    @staticmethod
-    def sort_front(entity_list):
-        assert(isinstance(entity_list, list))
-        entity_list.sort(key=lambda entity: (1-2*entity.team)*entity.x + entity.team*G.WIDTH, reverse=True)
-
-    @staticmethod
-    def sort_near(entity_list, entity_c):
-        assert(isinstance(entity_list, list))
-        assert(isinstance(entity_c, RoundEntity))
-        entity_list.sort(key=lambda entity: M.dist_e(entity_c, entity))
+    # @staticmethod
+    # def sort_front(entity_list):
+    #     assert(isinstance(entity_list, list))
+    #     entity_list.sort(key=lambda entity: (1-2*entity.team)*entity.x + entity.team*G.WIDTH, reverse=True)
+    #
+    # @staticmethod
+    # def sort_near(entity_list, entity_c):
+    #     assert(isinstance(entity_list, list))
+    #     assert(isinstance(entity_c, RoundEntity))
+    #     entity_list.sort(key=lambda entity: M.dist_e(entity_c, entity))
 
     @staticmethod
     def unit_sorted_by_front(unit_dict, unit_type, team_num):
@@ -273,6 +298,17 @@ class U:
             if unit.team == team_num:
                 _res.append(unit)
         _res.sort(key=lambda u: -U.num_front(team_num) * u.x)
+        return _res
+
+    @staticmethod
+    def unit_sorted_by_health(unit_dict, unit_type, team_num):
+        assert(isinstance(unit_dict, dict))
+        assert(isinstance(unit_type, UnitType))
+        _res = []
+        for unit in unit_dict[unit_type]:
+            if unit.team == team_num:
+                _res.append(unit)
+        _res.sort(key=lambda u: u.health)
         return _res
 
     @staticmethod
@@ -430,12 +466,12 @@ class RoundEntity:
 class G:
     WIDTH = 1920
     HEIGHT = 750
+    dist_map = [[0 for _ in range(750)] for __ in range(750)]
 
     def __init__(self):
         # global items
         self.hero_num = 0
         self.team_num = 0
-        self.op_team = 1 - self.team_num
         self.bushAndSpawnPointCount = 0
         self.bushAndSpawnPointList = []
         self.itemCount = 0
@@ -452,6 +488,7 @@ class G:
         self.id_dict = []
 
         self.team_num = int(input())
+        self.op_team = 1 - self.team_num
         self.bushAndSpawnPointCount = int(input())
         for _ in range(self.bushAndSpawnPointCount):
             bush_and_spawn = BushAndSpawn(*input().split())
@@ -464,9 +501,15 @@ class G:
             self.itemList.append(Item(*item))
         self.basePos = (200, 590) if self.team_num == 0 else (1720, 590)
         debug('Team Number:{}'.format(self.team_num))
+        self.global_init()
 
     def global_init(self):
-        pass
+        assert(isinstance(self, G))
+        for y in range(750):
+            for x in range(750):
+                if x >= y:
+                    G.dist_map[y][x] = math.sqrt(x*x + y*y)
+                    G.dist_map[x][y] = G.dist_map[y][x]
 
     def round_init(self):
         self.roundEntityList = []
@@ -499,9 +542,15 @@ class G:
 class Arbiter:
     g = None
     hero_status = [[(0,)], [(0,)]]  # [[HeroStatus], [HeroStatus]]
+    my_heroes = []
+    heroes_attack_points = [[], []]
+    unit_front_list = []
+    op_unit_front_list = []
+    unit_health_list = []
+    op_unit_health_list = []
 
     class HeroStatus(IntEnum):
-        AGGRO  = 0
+        AGGRO = 0
 
     class HeroAction(IntEnum):
         ESCAPE_HERO  = 0
@@ -525,77 +574,113 @@ class Arbiter:
         Arbiter.g = game_info
 
     @staticmethod
-    def gen_choices(hero):
-        g = Arbiter.g
-        assert(isinstance(hero, RoundEntity))
+    def update_round_param(g):
         assert(isinstance(g, G))
-        assert(hero.heroType == g.me_heroes_type[0] or hero.heroType == g.me_heroes_type[1])
-        _hero_idx = 0 if hero.heroType == g.me_heroes_type[0] else 1
-        _new_choices = [None for _ in range(Arbiter.HeroAction.MAX.value)]
+        Arbiter.my_heroes = [None for _ in range(2)]
+        for _ in Arbiter.g.u[UnitType.HERO]:
+            if _.team == g.team_num and _.heroType == g.me_heroes_type[0]:
+                Arbiter.my_heroes[0] = _
+            elif _.team == g.team_num and _.heroType == g.me_heroes_type[1]:
+                Arbiter.my_heroes[1] = _
+        Arbiter.unit_front_list = U.unit_sorted_by_front(g.u, UnitType.UNIT, g.team_num)
+        Arbiter.op_unit_front_list = U.unit_sorted_by_front(g.u, UnitType.UNIT, g.op_team)
+        Arbiter.unit_health_list = U.unit_sorted_by_health(g.u, UnitType.UNIT, g.team_num)
+        Arbiter.op_unit_health_list = U.unit_sorted_by_health(g.u, UnitType.UNIT, g.op_team)
+        for _idx in range(len(Arbiter.my_heroes)):
+            if not Arbiter.my_heroes[_idx] is None:
+                Arbiter.heroes_attack_points[_idx] = U.get_range_pos(Arbiter.my_heroes[_idx])
 
-        unit_front_list = U.unit_sorted_by_front(g.u, UnitType.UNIT, g.team_num)
-        op_unit_front_list = U.unit_sorted_by_front(g.u, UnitType.UNIT, g.op_team)
-        attack_points = U.get_range_pos(hero)
+    @staticmethod
+    def gen_choices(g, hero_idx):
+        _new_choices = [None for _ in range(Arbiter.HeroAction.MAX.value)]
+        hero = Arbiter.my_heroes[hero_idx]
+        if hero is None:
+            return _new_choices
+        assert(isinstance(g, G))
+        assert(isinstance(hero, RoundEntity))
+        assert(hero.heroType == g.me_heroes_type[0] or hero.heroType == g.me_heroes_type[1])
+        unit_front_list = Arbiter.unit_front_list
+        op_unit_front_list = Arbiter.op_unit_front_list
+        unit_health_list = Arbiter.unit_health_list
+        op_unit_health_list = Arbiter.op_unit_health_list
+        attack_points = Arbiter.heroes_attack_points[hero_idx]
         for s in Arbiter.HeroAction:
             if s == Arbiter.HeroAction.ESCAPE_HERO:
                 # _tmp = 0
                 # for _enemy in g.u[UnitType.HERO]:
                 #     if _enemy.team == g.op_team and _enemy
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.ESCAPE_AGGRO:
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.SKILLS:
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.ATTACK_HERO:
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.ATTACK_TOWER:
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.LAST_HIT:
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.DENY:
-                _res = None
-            elif s == Arbiter.HeroAction.BUY:
-                _res = None
-            elif s == Arbiter.HeroAction.SELL:
-                _res = None
-            elif s == Arbiter.HeroAction.ATTACK_UNIT:
-                _res = None
+                _r = None
                 if unit_front_list:
-                    for op_unit in op_unit_front_list:
+                    for unit in unit_health_list:
+                        _dec_heal = g.id_dict[unit.unitId][1].health - unit.health
+                        if not (hero.attack_damage >= unit.health - _dec_heal > 0) or len(unit_front_list) == 0 or \
+                                U.get_shoot_range(hero) < M.dist_e(hero, unit):
+                            continue
                         for p in attack_points:
-                            if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y):
-                                _res = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_unit.unitId),)
-                                break
-                        if _res:
+                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
+                                if unit_front_list[0].health > 100 and unit_front_list[0].unitId != unit.unitId:
+                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], unit.x, unit.y):
+                                        _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], unit.unitId),)
+                                        break
+                        if _r:
+                            break
+            elif s == Arbiter.HeroAction.BUY:
+                _r = None
+            elif s == Arbiter.HeroAction.SELL:
+                _r = None
+            elif s == Arbiter.HeroAction.ATTACK_UNIT:
+                _r = None
+                if unit_front_list:
+                    for op_unit in op_unit_health_list:
+                        if len(unit_front_list) == 0 or U.get_shoot_range(hero) < M.dist_e(hero, op_unit):
+                            continue
+                        for p in attack_points:
+                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
+                                if unit_front_list[0].health > 100:
+                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y):
+                                        _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_unit.unitId),)
+                                        break
+                        if _r:
                             break
 
             elif s == Arbiter.HeroAction.FOLLOW_UNIT:
-                _res = None
+                _r = None
                 if len(unit_front_list) > 0:
                     for u in unit_front_list:
                         assert(isinstance(u, RoundEntity))
                         if u.health > 80:
-                            _res = ('MOVE {} {}'.format(u.x - U.num_front(g.team_num)*20+random.randint(-5, 5),
-                                                        u.y + random.randint(-150, 150)),)
+                            _r = ('MOVE {} {}'.format(u.x - U.num_front(g.team_num)*20+random.randint(-5, 5),
+                                                        u.y + random.randint(-100, 100)),)
                             break
             elif s == Arbiter.HeroAction.FOLLOW_GROOT:
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.WAIT_MATE:
-                _res = None
+                _r = None
             elif s == Arbiter.HeroAction.IDLE:
-                _res = ('MOVE {} {}'.format(g.basePos[0], g.basePos[1]),)
+                _r = ('MOVE {} {}'.format(g.basePos[0] - U.num_front(g.team_num) * 5, g.basePos[1]),)
             else: # HeroAction.MAX
-                _res = None
                 continue
-            # if _res:
-            #     debug('{} -> {}'.format(s, _res))
-            _new_choices[s.value] = _res
-        return _hero_idx, _new_choices
+            # if _r:
+            #     debug('{} -> {}'.format(s, _r))
+            _new_choices[s.value] = _r
+        return _new_choices
 
     @staticmethod
-    def gen_action(heroes_choices):
+    def gen_action(g, heroes_choices):
+        assert(isinstance(g, G))
         assert(isinstance(heroes_choices, list))
-        g = Arbiter.g
         hero_act = ['WAIT', 'WAIT']
         for idx in range(2):
             if heroes_choices[idx]:
@@ -606,19 +691,17 @@ class Arbiter:
         return hero_act[0], hero_act[1]
 
     @staticmethod
-    def hero_process():
-        g = Arbiter.g
+    def hero_process(g):
         _heroes_choices = [None, None]
-        for _ in Arbiter.g.u[UnitType.HERO]:
-            if _.team == g.team_num:
-                _index, _choices = Arbiter.gen_choices(_)
-                _heroes_choices[_index] = _choices
-        return Arbiter.gen_action(_heroes_choices)
+        Arbiter.update_round_param(g)
+        for _idx in range(len(Arbiter.my_heroes)):
+            _choices = Arbiter.gen_choices(g, _idx)
+            _heroes_choices[_idx] = _choices
+        return Arbiter.gen_action(g, _heroes_choices)
 
 
 def process(g):
-    Time.set()
-    hero1_act, hero2_act = Arbiter.hero_process()
+    hero1_act, hero2_act = Arbiter.hero_process(g)
     # debug([str(_) for _ in U.unit_sorted_by_front(g.u, UnitType.UNIT, g.team_num)])
     print(hero1_act + '\n' + hero2_act)
 
@@ -631,8 +714,8 @@ if __name__ == '__main__':
     for _ in range(2):
         _g.round_init()  # pick hero
         print(_g.get_hero())
-    _g.global_init()
     while True:
         _g.round_init()
+        Time.set()
         process(_g)
         Time.get()
