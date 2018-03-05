@@ -9,28 +9,9 @@ from queue import PriorityQueue
 # ===== items list =====
 # Name                    Cost   Damage Health  maxH     Mana   maxM    Speed  ManaRe  isPotion
 # [ Golden_Blade_14        934    129    0       0        0      0       63     0       0 ]
-# [ Legendary_Gadget_16    1229    0     2462    2462     0      0       0      0       0 ]
 # [ mana_potion            25      0     0       0        50     0       0      0       1 ]
-# [ Bronze_Gadget_1        46      0     0       0        92     92      0      0       0 ]
-# [ Bronze_Blade_4         148     14    0       0        0      0       0      1       0 ]
-# [ xxl_potion             330     0     500     0        0      0       0      0       1 ]
-# [ Bronze_Blade_2         168     18    0       0        86     86      0      0       0 ]
-# [ Bronze_Blade_3         113     16    0       0        0      0       0      0       0 ]
-# [ Legendary_Blade_18     1113    198   0       0        100    100     0      0       0 ]
-# [ Bronze_Boots_5         148     5     0       0        100    100     18     0       0 ]
-# [ Silver_Blade_8         324     13    0       0        0      0       0      5       0 ]
-# [ Silver_Blade_7         273     4     368     368      0      0       0      0       0 ]
-# [ Silver_Blade_9         343     21    90      90       0      0       0      3       0 ]
-# [ Silver_Gadget_6        300     0     381     381      100    100     0      0       0 ]
-# [ Silver_Gadget_10       494     0     132     132      100    100     0      8       0 ]
 # [ Golden_Boots_13        984     0     0       0        100    100     150    13      0 ]
-# [ Golden_Boots_11        1010    0     0       0        88     88      150    14      0 ]
-# [ Golden_Boots_15        579     0     567     567      100    100     56     0       0 ]
-# [ larger_potion          70      0     100     0        0      0       0      0       1 ]
-# [ Legendary_Boots_19     1268    150    0      0        0      0       150    4       0 ]
-# [ Legendary_Gadget_20    1500    0      1928   1928     0      0       0      32      0 ]
-# [ Golden_Blade_12        943     109    0      0        0      0       10     7       0 ]
-# [ Legendary_Boots_17     1194    0      0      0        100    100     137    22      0 ]
+# ...
 
 # ===== UNITS =====
 # TYPE	                MEELE  HEALTH   DAMAGE  RANGE   MOVESPEED   ATTACKTIME  GOLD	MANA    MANAREG
@@ -240,18 +221,28 @@ class U:
             return (e_pos[0] - ref.x >= 0 and e_pos_team == 0) or (e_pos[0] - ref.x <= 0 and e_pos_team == 1)
 
     @staticmethod
-    def get_range_pos(hero):
-        assert(isinstance(hero, RoundEntity))
-        if hero.movement_speed in U.range_point_dict:
-            return U.range_point_dict[hero.movement_speed]
+    def get_range_pos(hero_or_radius, team=0):
+        if isinstance(hero_or_radius, RoundEntity):
+            team = hero_or_radius.team
+            radius = hero_or_radius.movement_speed
         else:
-            l = int(hero.movement_speed * 0.9)
+            radius = hero_or_radius
+        if radius in U.range_point_dict:
+            return U.range_point_dict[radius]
+        else:
+            l = int(radius * 0.9)
             _res = []
-            for _x in range(-l, l, 30):
-                for _y in range(-l, l, 30):
-                    if M.dist(_x, _y, 0, 0) < l:
-                        _res.append((_x, _y))
-            U.range_point_dict[hero.movement_speed] = _res
+            if team == 0:
+                for _x in range(-l, l, 30):
+                    for _y in range(l, -l, -30):
+                        if M.dist(_x, _y, 0, 0) < l:
+                            _res.append((_x, _y))
+            else:
+                for _x in range(l, -l, -30):
+                    for _y in range(l, -l, -30):
+                        if M.dist(_x, _y, 0, 0) < l:
+                            _res.append((_x, _y))
+            U.range_point_dict[radius] = _res
             return _res
 
     @staticmethod
@@ -532,11 +523,14 @@ class G:
 
     def get_hero(self):
         if len(self.me_heroes_type) == 0:
-            self.me_heroes_type.append(HeroType.IRONMAN)
-            return HeroType.IRONMAN.value
-        else:
             self.me_heroes_type.append(HeroType.DOCTOR_STRANGE)
             return HeroType.DOCTOR_STRANGE.value
+        else:
+            self.me_heroes_type.append(HeroType.IRONMAN)
+            return HeroType.IRONMAN.value
+
+    def is_inrange(self, p):
+        return 0 <= p[0] < G.WIDTH and 0 <= p[1] < G.HEIGHT
 
 
 class Arbiter:
@@ -622,19 +616,124 @@ class Arbiter:
                 _r = None
             elif s == Arbiter.HeroAction.ESCAPE_AGGRO:
                 _r = None
-                debug('AGGRO:hero-{} {}'.format(hero_idx, Arbiter.hero_old_status[hero_idx][Arbiter.HeroStatus.AGGRO.value]))
+                # debug('AGGRO:hero-{} {}'.format(hero_idx, Arbiter.hero_old_status[hero_idx][Arbiter.HeroStatus.AGGRO.value]))
                 aggro = Arbiter.hero_old_status[hero_idx][Arbiter.HeroStatus.AGGRO.value]
                 if aggro > 0:
+                    is_safe = True
+                    for op_unit in g.u[UnitType.HERO] + g.u[UnitType.UNIT] + g.u[UnitType.TOWER]:
+                        if op_unit.team == g.op_team and M.dist_e(hero, op_unit) < U.get_shoot_range(op_unit):
+                            is_safe = False
+                            break
+                    if is_safe:
+                        Arbiter.hero_status[hero_idx][Arbiter.HeroStatus.AGGRO.value] = 0
+                        continue
                     Arbiter.hero_status[hero_idx][Arbiter.HeroStatus.AGGRO.value] = aggro - 1
+                    debug('ESCAPE_AGGRO:{} - {}'.format(hero.unitId, aggro))
                     _r = ('MOVE {} {}'.format(int(hero.x - U.num_front(hero) * (U.get_shoot_range(hero))), hero.y),)
             elif s == Arbiter.HeroAction.SKILLS:
                 _r = None
+#       BURNING x y
+#           makes that target location burn and damages all enemy units in the area
+#           manacost: 50
+#           range: 250
+#           radius: 100
+#           cast duration: instant
+#           damage: manaRegeneration * 3 + 30
+#           cooldown: 5
+                if hero.heroType == HeroType.IRONMAN and hero.countDown3 == 0 and hero.mana > 50:  # BURNING
+                    for op_hero in g.u[UnitType.HERO]:  # Burning hero
+                        if op_hero.team == g.op_team and 300 > M.dist_e(hero, op_hero):
+                            for p in U.get_range_pos(249):  # check no unit attack me
+                                if M.dist(hero.x+p[0], hero.y+p[1], op_hero.x, op_hero.y) < 100 and g.is_inrange((hero.x+p[0], hero.y+p[1])):
+                                    safe_flag = True
+                                    for op_unit in g.u[UnitType.HERO] + g.u[UnitType.UNIT] + g.u[UnitType.TOWER]:
+                                        if M.dist_e(hero, op_unit) < op_unit.attackRange and op_unit.unitId != op_hero and op_unit.team == g.op_team:
+                                            safe_flag = False
+                                            break
+                                    if safe_flag:
+                                        debug('BURNING HERO:{}'.format(op_hero.unitId))
+                                        _r = ('BURNING {} {}'.format(hero.x+p[0], hero.y+p[1]),)
+                                        break
+                    if _r:
+                        continue
+                    for op_unit in op_unit_health_list:  # Burning unit
+                        if len(unit_front_list) == 0 or U.get_shoot_range(hero) < M.dist_e(hero, op_unit) or hero.mana < 100:
+                            continue
+                        for p in U.get_range_pos(249):
+                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
+                                if unit_front_list[0].health > 100:
+                                    if 75 > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
+                                        debug('BURNING Unit:{}'.format(op_unit.unitId))
+                                        _r = ('BURNING {} {}'.format(hero.x+p[0], hero.y+p[1]),)
+                                        break
+                        if _r:
+                            break
+#       FIREBALL x y
+#           throws a ball of fire that damages all enemy heroes and neutral creatures in a line
+#           manacost: 60
+#           range: 900
+#           flytime: 0.9
+#           impact radius: 50
+#           damage: current mana * 0.2 + 55 * distance traveled / 1000
+#           cast duration: instant
+#           cooldown: 6
+                elif hero.heroType == HeroType.IRONMAN and hero.countDown2 == 0 and hero.mana > 60:  # FIREBALL
+                    for op_unit in op_unit_health_list[::-1]:  # FIREBALL unit
+                        if len(unit_front_list) == 0 or U.get_shoot_range(hero) < M.dist_e(hero, op_unit) or hero.mana < 100:
+                            continue
+                        for p in U.get_range_pos(899):
+                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
+                                if unit_front_list[0].health > 100:
+                                    if 50 > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
+                                        debug('FIREBALL Unit:{}'.format(op_unit.unitId))
+                                        _r = ('FIREBALL {} {}'.format(hero.x+p[0], hero.y+p[1]),)
+                                        break
+                        if _r:
+                            break
+#       AOEHEAL
+#           heals all nearby allied units
+#           manacost: 50
+#           cast duration: instant
+#           range: 250
+#           radius: 100
+#           healing amount: mana * 0.2
+#           cooldown: 7
+                elif hero.heroType == HeroType.DOCTOR_STRANGE and hero.countDown1 == 0 and hero.mana > 50:  # AOEHEAL
+                    for unit in g.u[UnitType.HERO] + unit_health_list:  # AOEHEAL unit
+                        if len(unit_front_list) == 0 or unit.max_health - unit.health < 100:
+                            continue
+                        for p in U.get_range_pos(249):
+                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
+                                if 50 > M.dist(hero.x+p[0], hero.y+p[1], unit.x, unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
+                                    debug('AOEHEAL Unit:{}'.format(unit.unitId))
+                                    _r = ('AOEHEAL {} {}'.format(hero.x+p[0], hero.y+p[1]),)
+                                    break
+                        if _r:
+                            break
+#       SHIELD unitId
+#           gives a shield to an allied units
+#           manacost 20
+#           duration in rounds: 2
+#           range: 500
+#           temporary health bonus: maxMana * 0.3
+#           cooldown: 6
+                elif hero.heroType == HeroType.DOCTOR_STRANGE and hero.countDown2 == 0 and hero.mana > 20:  # SHIELD
+                    for unit in unit_health_list:  # SHIELD unit
+                        if len(unit_front_list) == 0 or unit.max_health - unit.health < 100:
+                            continue
+                        if not U.is_entity_front((hero.x, hero.y), unit_front_list[0], hero.team):
+                            if 499 > M.dist(hero.x, hero.y, unit.x, unit.y):
+                                debug('SHIELD Unit:{}'.format(unit.unitId))
+                                _r = ('SHIELD {}'.format(unit.unitId),)
+                                break
+                        if _r:
+                            break
             elif s == Arbiter.HeroAction.ATTACK_HERO:
                 _r = None
                 for op_hero in g.u[UnitType.HERO]:
                     if op_hero.team == g.op_team and U.get_shoot_range(hero) > M.dist_e(hero, op_hero):
                         for p in attack_points:  # no op_hero attack me
-                            if M.dist(hero.x+p[0], hero.y+p[1], op_hero.x, op_hero.y) < hero.attackRange:
+                            if M.dist(hero.x+p[0], hero.y+p[1], op_hero.x, op_hero.y) < hero.attackRange and g.is_inrange((hero.x+p[0], hero.y+p[1])):
                                 safe_flag = True
                                 for op_unit in g.u[UnitType.HERO] + g.u[UnitType.UNIT] + g.u[UnitType.TOWER]:
                                     if M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y) < op_unit.attackRange and op_unit.unitId != op_hero and op_unit.team == g.op_team:
@@ -642,8 +741,7 @@ class Arbiter:
                                         break
                                 if safe_flag:
                                     debug('ATTACK HERO:{}'.format(op_hero.unitId))
-                                    _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_hero.unitId),)
-                                    Arbiter.hero_status[hero_idx][Arbiter.HeroStatus.AGGRO.value] = 3
+                                    _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_hero.unitId), 'AGGRO')
                                     break
                         if _r:
                             break
@@ -678,11 +776,12 @@ class Arbiter:
                 for p in attack_points:  # no op_hero attack me
                     safe_flag = True
                     for op_hero in g.u[UnitType.HERO]:
-                        if op_hero.unitId == g.op_team and \
+                        if op_hero.unitId == g.op_team  and g.is_inrange((hero.x+p[0], hero.y+p[1])) and \
                                 op_hero.attackRange < M.dist(hero.x+p[0], hero.y+p[1], op_hero.x, op_hero.y):
                             safe_flag = False
                             break
                     if safe_flag:
+                        debug('ATTACK Tower:{}'.format(towers[g.op_team].health))
                         _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], towers[g.op_team].unitId),)
                         break
 
@@ -691,13 +790,13 @@ class Arbiter:
                 if unit_front_list:
                     for op_unit in op_unit_health_list:
                         _dec_heal = g.id_dict[op_unit.unitId][1].health - op_unit.health
-                        if not (hero.attack_damage >= op_unit.health - _dec_heal > 0) or len(unit_front_list) == 0 or \
-                                U.get_shoot_range(hero) < M.dist_e(hero, op_unit):
+                        if not (hero.attack_damage >= op_unit.health - _dec_heal > 0) or len(unit_front_list) == 0:
                             continue
                         for p in attack_points:
                             if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
-                                if unit_front_list[0].health > 100:
-                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y):
+                                if unit_front_list[0].health > 10:
+                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
+                                        debug('ATTACK LastHit:{}'.format(op_unit.unitId))
                                         _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_unit.unitId),)
                                         break
                         if _r:
@@ -712,8 +811,8 @@ class Arbiter:
                             continue
                         for p in attack_points:
                             if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
-                                if unit_front_list[0].health > 100 and unit_front_list[0].unitId != unit.unitId:
-                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], unit.x, unit.y):
+                                if unit_front_list[0].health > 10 and unit_front_list[0].unitId != unit.unitId:
+                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], unit.x, unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
                                         _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], unit.unitId),)
                                         break
                         if _r:
@@ -724,9 +823,27 @@ class Arbiter:
                     if U.is_entity_front(hero, unit):
                         break
                     _dec_heal = g.id_dict[unit.unitId][1].health - unit.health
-                    if unit.health > _dec_heal and g.me_gold > 70 and hero.max_health - hero.health > 100:
+                    if unit.health < _dec_heal:
+                        continue
+                    if g.me_gold > 70 and hero.max_health - hero.health > 200 and hero.itemsOwned <= 3:
                         _r = ('BUY larger_potion',)
                         break
+                    if hero.heroType == HeroType.IRONMAN and hero.itemsOwned < 4:
+                        # (itemName, itemCost, damage, health, maxHealth, mana, maxMana, moveSpeed, manaRegeneration, isPotion):
+                        g.itemList.sort(key=lambda item: item.manaRegeneration, reverse=True)
+                        for item in g.itemList:
+                            if g.me_gold > item.itemCost > (123 + 100 * hero.itemsOwned) and item.manaRegeneration > 0 and item.isPotion != 1:
+                                _r = ('BUY {}'.format(item.itemName),)
+                                break
+                    elif hero.heroType == HeroType.DOCTOR_STRANGE and hero.itemsOwned < 4:
+                        g.itemList.sort(key=lambda item: item.mana, reverse=True)
+                        for item in g.itemList:
+                            if g.me_gold > item.itemCost > (123 + 100 * hero.itemsOwned) and item.manaRegeneration > 0 and item.isPotion != 1:
+                                _r = ('BUY {}'.format(item.itemName),)
+                                break
+                    if _r:
+                        break
+
             elif s == Arbiter.HeroAction.SELL:
                 _r = None
             elif s == Arbiter.HeroAction.ATTACK_UNIT:
@@ -737,8 +854,9 @@ class Arbiter:
                             continue
                         for p in attack_points:
                             if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
-                                if unit_front_list[0].health > 100:
-                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y):
+                                if unit_front_list[0].health > 50:
+                                    if hero.attackRange > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
+                                        debug('ATTACK Unit:{}'.format(op_unit.unitId))
                                         _r = ('MOVE_ATTACK {} {} {}'.format(hero.x+p[0], hero.y+p[1], op_unit.unitId),)
                                         break
                         if _r:
@@ -749,8 +867,8 @@ class Arbiter:
                     for u in unit_front_list:
                         assert(isinstance(u, RoundEntity))
                         if u.health > 120:
-                            _r = ('MOVE {} {}'.format(u.x - U.num_front(g.team_num)*20+random.randint(-5, 5),
-                                                      u.y + random.randint(-100, 100)),)
+                            _r = ('MOVE {} {}'.format(u.x - U.num_front(g.team_num)*150+random.randint(-10, 10),
+                                                      u.y + random.randint(-90, 90)),)
                             break
             elif s == Arbiter.HeroAction.FOLLOW_GROOT:
                 _r = None
@@ -770,11 +888,18 @@ class Arbiter:
         assert(isinstance(g, G))
         assert(isinstance(heroes_choices, list))
         hero_act = ['WAIT', 'WAIT']
+        buying_flag = False
         for idx in range(2):
             if heroes_choices[idx]:
                 for act in heroes_choices[idx]:
                     if act:
+                        if buying_flag:
+                            continue
                         hero_act[idx] = act[0]
+                        if 'BUY' in act[0]:
+                            buying_flag = True
+                        if len(act) > 1 and 'AGGRO' in act[1]:
+                            Arbiter.hero_status[idx][Arbiter.HeroStatus.AGGRO.value] = 1
                         break
         return hero_act[0], hero_act[1]
 
