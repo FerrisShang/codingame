@@ -557,7 +557,8 @@ class Arbiter:
         AGGRO = 0
 
     class HeroAction(IntEnum):
-        ESCAPE_HERO  = 0
+        KILL_HERO  = 0.1
+        ESCAPE_HERO  = 0.5
         ESCAPE_AGGRO = 1
         SKILLS       = 2
         ATTACK_HERO  = 3
@@ -617,7 +618,18 @@ class Arbiter:
         attack_points = Arbiter.heroes_attack_points[hero_idx]
         towers = Arbiter.towers
         for s in Arbiter.HeroAction:
-            if s == Arbiter.HeroAction.ESCAPE_HERO:
+            if s == Arbiter.HeroAction.KILL_HERO:
+                _r = None
+                if [_ for _ in Arbiter.my_heroes].count(None) == 0:
+                    for op_hero in g.u[UnitType.HERO]:
+                        if op_hero.team != g.team_num:
+                            if (op_hero.health < (Arbiter.my_heroes[0].attack_damage + Arbiter.my_heroes[1].attack_damage) * 2 or op_hero.health < (Arbiter.my_heroes[0].attack_damage + Arbiter.my_heroes[1].attack_damage)) and \
+                                Arbiter.my_heroes[0].health > 450 and Arbiter.my_heroes[1].health > 450 and \
+                                M.dist_e(Arbiter.my_heroes[0], op_hero) < U.get_shoot_range(Arbiter.my_heroes[0]) and \
+                                M.dist_e(Arbiter.my_heroes[1], op_hero) < U.get_shoot_range(Arbiter.my_heroes[1]):
+                                debug('KILL:{}'.format(str(op_hero)))
+                                _r = ('MOVE_ATTACK {} {} {} ; KILL'.format(op_hero.x, op_hero.y, op_hero.unitId),)
+            elif s == Arbiter.HeroAction.ESCAPE_HERO:
                 _r = None
                 debug('{},{}'.format(hero.x, g.u[UnitType.TOWER][0].x - 20))
                 if len(op_unit_front_list)> 0 and len(unit_front_list)> 0 and M.dist_e(hero, op_unit_front_list[0]) < hero.attackRange:
@@ -625,7 +637,7 @@ class Arbiter:
                         _r = ('ATTACK {} ; ATTACK'.format(op_unit_front_list[0].unitId),)
                     elif hero.team == 1 and hero.x > g.u[UnitType.TOWER][1].x + 20:
                         _r = ('ATTACK {} ; ATTACK'.format(op_unit_front_list[0].unitId),)
-                elif len(op_unit_front_list)> 0 and g.id_dict[hero.unitId][0].health - g.id_dict[hero.unitId][1].health > 20:
+                elif len(op_unit_front_list)> 0 and g.id_dict[hero.unitId][0].health - g.id_dict[hero.unitId][1].health > 20 and M.dist_e(hero, op_unit_front_list[0]) < op_unit_front_list[0].attackRange:
                     _r = ('MOVE_ATTACK {} {} {} ; MOVE_ATTACK'.format(int(hero.x - U.num_front(hero) * hero.movement_speed), hero.y, op_unit_front_list[0].unitId),)
                 elif not U.out_of_tower(hero) or \
                         (len(unit_front_list) > 0 and len(op_unit_front_list)> 0 and (hero.x - unit_front_list[0].x) * U.num_front(hero) > 0):
@@ -657,7 +669,7 @@ class Arbiter:
 #           cast duration: instant
 #           damage: manaRegeneration * 3 + 30
 #           cooldown: 5
-                if hero.heroType == HeroType.IRONMAN and hero.countDown3 == 0 and hero.mana > 50:  # BURNING
+                if False and hero.heroType == HeroType.IRONMAN and hero.countDown3 == 0 and hero.mana > 50:  # BURNING
                     for op_hero in g.u[UnitType.HERO]:  # Burning hero
                         if op_hero.team == g.op_team and 300 > M.dist_e(hero, op_hero):
                             for p in U.get_range_pos(249):  # check no unit attack me
@@ -694,19 +706,16 @@ class Arbiter:
 #           damage: current mana * 0.2 + 55 * distance traveled / 1000
 #           cast duration: instant
 #           cooldown: 6
-                elif False and hero.heroType == HeroType.IRONMAN and hero.countDown2 == 0 and hero.mana > 60:  # FIREBALL
-                    for op_unit in op_unit_health_list[::-1]:  # FIREBALL unit
-                        if len(unit_front_list) == 0 or U.get_shoot_range(hero) < M.dist_e(hero, op_unit) or hero.mana < 100:
+                elif hero.heroType == HeroType.IRONMAN and hero.countDown2 == 0 and hero.mana > 60:  # FIREBALL
+                    for op_unit in g.u[UnitType.HERO]:  # FIREBALL unit
+                        if op_unit is None or op_unit.team == g.team_num or M.dist_e(op_unit, hero) < 400 or \
+                                op_unit.team == g.team_num or M.dist_e(op_unit, hero) > 800 or \
+                                not g.basePos[1] - 120 < hero.y < g.basePos[1] + 120 or \
+                                not g.basePos[1] - 120 < op_unit.y < g.basePos[1] + 120:
                             continue
-                        for p in U.get_range_pos(899):
-                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
-                                if unit_front_list[0].health > 100:
-                                    if 50 > M.dist(hero.x+p[0], hero.y+p[1], op_unit.x, op_unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
-                                        debug('FIREBALL Unit:{}'.format(op_unit.unitId))
-                                        _r = ('FIREBALL {} {}'.format(hero.x+p[0], hero.y+p[1]),)
-                                        break
-                        if _r:
-                            break
+                        debug('FIREBALL Unit:{}'.format(op_unit.unitId))
+                        _r = ('FIREBALL {} {}'.format(op_unit.x, op_unit.y),)
+                        break
 #       AOEHEAL
 #           heals all nearby allied units
 #           manacost: 50
@@ -716,17 +725,22 @@ class Arbiter:
 #           healing amount: mana * 0.2
 #           cooldown: 7
                 elif hero.heroType == HeroType.DOCTOR_STRANGE and hero.countDown1 == 0 and hero.mana > 50:  # AOEHEAL
-                    for unit in g.u[UnitType.HERO]:  # AOEHEAL unit
-                        if len(unit_front_list) == 0 or unit.max_health - unit.health < 100:
-                            continue
-                        for p in U.get_range_pos(249):
-                            if not U.is_entity_front((hero.x+p[0], hero.y+p[1]), unit_front_list[0], hero.team):
-                                if 50 > M.dist(hero.x+p[0], hero.y+p[1], unit.x, unit.y) and g.is_inrange((hero.x+p[0], hero.y+p[1])):
-                                    debug('AOEHEAL Unit:{}'.format(unit.unitId))
-                                    _r = ('AOEHEAL {} {}'.format(hero.x+p[0], hero.y+p[1]),)
-                                    break
-                        if _r:
-                            break
+                    heroNum = 2 - Arbiter.my_heroes.count(None)
+                    heroes = Arbiter.my_heroes
+                    if len(unit_front_list) > 0 and not U.is_entity_front(hero, unit_front_list[0], g.team_num):
+                        if heroNum == 1:
+                            if hero.max_health - hero.health > hero.mana * 0.2 + 20 and len(unit_front_list) > 0 and \
+                                    not U.is_entity_front((hero.x, hero.y), unit_front_list[0], hero.team):
+                                debug('AOEHEAL Unit:{}'.format(hero.unitId))
+                                _r = ('AOEHEAL {} {}'.format(hero.x, hero.y),)
+                        else:
+                            if heroes[0].max_health - heroes[0].health > hero.mana * 0.2 + 20 or \
+                                            heroes[1].max_health - heroes[1].health > hero.mana * 0.2 + 20 and \
+                                            M.dist_e(heroes[0], heroes[1]) < 98:
+                                debug('AOEHEAL Unit:{}'.format(hero.unitId))
+                                _r = ('AOEHEAL {} {} ; AOEHEAL'.format(
+                                    (heroes[0].x + heroes[1].x) // 2,
+                                    (heroes[0].y + heroes[1].y)//2),)
 #       SHIELD unitId
 #           gives a shield to an allied units
 #           manacost 20
@@ -734,7 +748,7 @@ class Arbiter:
 #           range: 500
 #           temporary health bonus: maxMana * 0.3
 #           cooldown: 6
-                elif hero.heroType == HeroType.DOCTOR_STRANGE and hero.countDown2 == 0 and hero.mana > 20:  # SHIELD
+                elif hero.heroType == HeroType.DOCTOR_STRANGE and hero.countDown2 == 0 and hero.mana > 100:  # SHIELD
                     for unit in unit_health_list:  # SHIELD unit
                         if len(unit_front_list) == 0 or unit.max_health - unit.health < 100:
                             continue
@@ -818,7 +832,7 @@ class Arbiter:
                                         break
                         if _r:
                             break
-            elif s == Arbiter.HeroAction.DENY:
+            elif s == Arbiter.HeroAction.DENY and False:
                 _r = None
                 if len(unit_front_list) > 0 and (g.roundType % 3) == 0:
                     for unit in unit_health_list:
@@ -844,19 +858,19 @@ class Arbiter:
                         break
                     if hero.heroType == HeroType.IRONMAN and hero.itemsOwned < 4:
                         # (itemName, itemCost, damage, health, maxHealth, mana, maxMana, moveSpeed, manaRegeneration, isPotion):
-                        g.itemList.sort(key=lambda item: item.damage, reverse=True)
+                        g.itemList.sort(key=lambda item: item.damage / item.itemCost, reverse=True)
                         for item in g.itemList:
                             if g.me_gold > item.itemCost > (50 + 50 * hero.itemsOwned) and item.damage > 0 and item.isPotion != 1:
                                 _r = ('BUY {} ; BUY'.format(item.itemName),)
                                 break
                     elif hero.heroType == HeroType.DOCTOR_STRANGE and hero.itemsOwned < 4:
-                        g.itemList.sort(key=lambda item: item.manaRegeneration, reverse=True)
+                        g.itemList.sort(key=lambda item: item.manaRegeneration / item.itemCost, reverse=True)
                         for item in g.itemList:
                             if g.me_gold > item.itemCost > (0 + 100 * hero.itemsOwned) and item.manaRegeneration > 0 and item.isPotion != 1:
                                 _r = ('BUY {} ; BUY'.format(item.itemName),)
                                 break
                         if not _r:
-                            g.itemList.sort(key=lambda item: item.damage, reverse=True)
+                            g.itemList.sort(key=lambda item: item.damage / item.itemCost, reverse=True)
                             for item in g.itemList:
                                 if g.me_gold > item.itemCost > (123 + 100 * hero.itemsOwned) and item.manaRegeneration > 0 and item.isPotion != 1:
                                     _r = ('BUY {} ; BUY'.format(item.itemName),)
@@ -888,9 +902,9 @@ class Arbiter:
                         assert(isinstance(u, RoundEntity))
                         if u.health > 120:
                             if hero.heroType == HeroType.IRONMAN and 20 < hero.mana < hero.maxMana - 5:
-                                _r = ('BLINK {} {} ; FOLLOW_UNIT'.format(u.x - U.num_front(g.team_num)*150, u.y),)
+                                _r = ('BLINK {} {} ; FOLLOW_UNIT'.format(u.x - U.num_front(g.team_num)*100, u.y),)
                             else:
-                                _r = ('MOVE {} {} ; FOLLOW_UNIT'.format(u.x - U.num_front(g.team_num)*150, u.y),)
+                                _r = ('MOVE {} {} ; FOLLOW_UNIT'.format(u.x - U.num_front(g.team_num)*100, u.y),)
                             break
             elif s == Arbiter.HeroAction.FOLLOW_GROOT:
                 _r = None
@@ -940,7 +954,10 @@ class Arbiter:
 def process(g):
     hero1_act, hero2_act = Arbiter.hero_process(g)
     # debug([str(_) for _ in U.unit_sorted_by_front(g.u, UnitType.UNIT, g.team_num)])
-    print(hero1_act + '\n' + hero2_act)
+    if Arbiter.my_heroes[0] is not None:
+        print(hero1_act)
+    if Arbiter.my_heroes[1] is not None:
+        print(hero2_act)
 
 
 if __name__ == '__main__':
