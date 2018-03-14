@@ -8,11 +8,21 @@
 
 #define MSG(fmt, ...) fprintf(stderr, "DEBUG: " fmt, __VA_ARGS__)
 using namespace std;
+class Time{
+	private:
+		static int mark;
+	public:
+		static void set(){mark = clock();}
+		static void get(){MSG("%d ms\n", clock() - mark);}
+};
+int Time::mark = 0;
+
 enum {ME=0,OP=1,CL=-1};
 enum {A=0,B,C,D,E,MOL_NUM};
 enum {START_POS=0, SAMPLES, DIAGNOSIS, MOLECULES, LABORATORY,};
 enum {UNDIAGNOSED=0, DIAGNOSED,};
 int distence[5][5] = {{0, 2, 2, 2, 2}, {2, 0, 3, 3, 3}, {2, 3, 0, 3, 4}, {2, 3, 3, 0, 3}, {2, 3, 4, 3, 0},};
+
 class Robot {
 	string str_target;
 	public:
@@ -200,9 +210,11 @@ int main(int argc, char *argv[]){
 	P *p = new P();
 	while(1){
 		g->roundUpdate();
+		Time::set();
 		p->update(g);
 		g->roundInfo->rbt_me->debug();
 		p->process();
+		Time::get();
 		p->output();
 	}
 }
