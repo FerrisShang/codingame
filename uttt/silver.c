@@ -58,9 +58,9 @@ void init_maps(void){
 				(_GPI(n, 0, 1) == _GPI(n, 1, 1) && _GPI(n, 1, 1) == _GPI(n, 2, 1)) || (_GPI(n, 1, 0) == _GPI(n, 1, 1) && _GPI(n, 1, 1) == _GPI(n, 1, 2)) ||
 				(_GPI(n, 0, 0) == _GPI(n, 1, 1) && _GPI(n, 1, 1) == _GPI(n, 2, 2)) || (_GPI(n, 0, 2) == _GPI(n, 1, 1) && _GPI(n, 1, 1) == _GPI(n, 2, 0)))){win_map[n] = _GPI(n, 1, 1);}
 		else if((_GPI(n, 2, 2) == ID0 || _GPI(n, 2, 2) == ID1) && ((_GPI(n, 0, 2) == _GPI(n, 1, 2) && _GPI(n, 1, 2) == _GPI(n, 2, 2)) || (_GPI(n, 2, 0) == _GPI(n, 2, 1) && _GPI(n, 2, 1) == _GPI(n, 2, 2)))){win_map[n] = _GPI(n, 2, 2);}
-		else if((_GPI(n, 0, 0) == ID0 || _GPI(n, 0, 0) == ID1) && (_GPI(n, 0, 1) == ID0 || _GPI(n, 0, 1) == ID1) && (_GPI(n, 0, 2) == ID0 || _GPI(n, 0, 2) == ID1) && 
-			 (_GPI(n, 1, 0) == ID0 || _GPI(n, 1, 0) == ID1) && (_GPI(n, 1, 1) == ID0 || _GPI(n, 1, 1) == ID1) && (_GPI(n, 1, 2) == ID0 || _GPI(n, 1, 2) == ID1) && 
-			 (_GPI(n, 2, 0) == ID0 || _GPI(n, 2, 0) == ID1) && (_GPI(n, 2, 1) == ID0 || _GPI(n, 2, 1) == ID1) && (_GPI(n, 2, 2) == ID0 || _GPI(n, 2, 2) == ID1)){win_map[n] = DRAW_FULL;}
+		else if((_GPI(n, 0, 0) != UNKNOWN) && (_GPI(n, 0, 1) != UNKNOWN) && (_GPI(n, 0, 2) != UNKNOWN) &&
+			 (_GPI(n, 1, 0) != UNKNOWN) && (_GPI(n, 1, 1) != UNKNOWN) && (_GPI(n, 1, 2) != UNKNOWN) &&
+			 (_GPI(n, 2, 0) != UNKNOWN) && (_GPI(n, 2, 1) != UNKNOWN) && (_GPI(n, 2, 2) != UNKNOWN)){win_map[n] = DRAW_FULL;}
 		else{win_map[n] = UNKNOWN;}
 	}
 }
