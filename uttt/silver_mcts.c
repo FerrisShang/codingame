@@ -10,13 +10,13 @@
 #define NDEBUG
 #include <assert.h>
 
-#define DEFAULT_TIME_PER_MOVE (CLOCKS_PER_SEC/1000*80)
+#define DEFAULT_TIME_PER_MOVE (CLOCKS_PER_SEC/1000*90)
 
 int TIME_START, TEST_VALUE, TEST_FLAG;
 
 enum ID{ EMPTY = 0, ID0 = 1, ID1 = 2, };
 enum win_map_state{ UNKNOWN = 0, ID0_WIN = 1, ID1_WIN = 2, DRAW_FULL = 3 };
-enum score{ SC_INVALID = -(1<<24), SC_ZERO = 0, SC_WIN = 15};
+enum score{ SC_INVALID = -(1<<24), SC_ZERO = 0, SC_WIN = 1};
 char win_map[1 << 18];
 char win_map_all[1 << 18];
 int field_pos_map[9][9];
@@ -151,20 +151,12 @@ struct node* growNode(struct node* node, unsigned char point)
 	SET(field, x, y, n->id);
 	UPDATE_FIELD_ADD(field, x, y);
 	//calculate score
-#if 1
-	if((n->win_state = GET_STATE_ALL(field)) != UNKNOWN) { n->sim_score = (n->id == n->win_state);return n; }
-#else
-	if((n->win_state = GET_STATE(field, FIELD_ALL)) != UNKNOWN) {
-		n->score = n->win_state == n->id ? SC_WIN : n->win_state == OP_ID(n->id) ? -SC_WIN : 0;
+	if((n->win_state = GET_STATE_ALL(field)) != UNKNOWN) {
+		if(n->id == n->win_state) n->sim_score = SC_WIN;
+		else if(OP_ID(n->id) == n->win_state) n->sim_score = -SC_WIN;
+		else n->sim_score = SC_ZERO;
 		return n;
-	} else {
-		int t_field = n->field[FIELD_ALL], *score = &n->score;
-		while(t_field){
-			*score += n->id == (t_field & 0x03) ? 1 : -1;
-			t_field >>= 2;
-		}
 	}
-#endif
 	//update valid_moves
 	if(GET_STATE(field, (y%3)*3+(x%3)) == UNKNOWN){ int bx = (x%3)*3, by = (y%3)*3;
 		for(y=by;y<by+3;y++){ for(x=bx;x<bx+3;x++){/**/if(IS_VALID(field, x, y)){ valid_moves[valid_move_cnt++] = (y<<4)|x; }/**/}}
@@ -215,16 +207,11 @@ int getRandomRes(struct node *node)
 	static unsigned char rand_node_move[81];
 	*n = *node;
 	while(1){
-		int i, move_cnt = 0;
-		if(n->win_state == node->id){ release(head); return 1;
-		}else if(n->win_state != UNKNOWN){ release(head); return 0; }
-		for(i=0;i<n->valid_move_cnt;i++){
-			int y = n->valid_moves[i] >> 4, x = n->valid_moves[i] & 0xF;
-			if(n->p_nmn[y][x] == NULL){
-				rand_node_move[move_cnt++] = n->valid_moves[i];
-			}
-		}
-		unsigned char rand_move = rand_node_move[rand() % move_cnt];
+		int i;
+		if(n->win_state == node->id){ release(head); return SC_WIN;
+		}else if(n->win_state == OP_ID(node->id)){ release(head); return -SC_WIN;
+		}else if(n->win_state != UNKNOWN){ release(head); return SC_ZERO; }
+		unsigned char rand_move = n->valid_moves[rand() % n->valid_move_cnt];
 		unsigned char y = rand_move >> 4, x = rand_move & 0xF;
 		n->p_nmn[y][x] = growNode(n, rand_move);
 		n->moveds[n->moved_cnt++] = rand_move;
@@ -284,12 +271,14 @@ void mctsSimulation(void)
 		struct node *n_me     = node_list[node_cnt];
 		struct node *n_parent = node_list[node_cnt-1];
 		n_parent->simulations += 1;
-		if(n_me->id == n->id && n_me != n){
-			n_me->sim_score += n->sim_score;
+		if(n_parent->id == n->id){
+			n_parent->sim_score += n->sim_score;
+		}else{
+			n_parent->sim_score -= n->sim_score;
 		}
 		n_me->mcts_score = mctsScore(n_me->sim_score, n_me->simulations, n_parent->simulations);
 		// TODO: update best child
-		if(n_parent->child_max_score < n_me->mcts_score){
+		if(n_parent->child_max_score < n_me->mcts_score || ((rand()&1) && n_parent->child_max_score == n_me->mcts_score)){
 			n_parent->child_max_score = n_me->mcts_score;
 			n_parent->child_best = n_me;
 		}else if(n_parent->child_best == n_me){
@@ -303,7 +292,6 @@ void mctsSimulation(void)
 				}
 			}
 		}
-		assert( 0);
 		assert(n_me->mcts_score >= 0);
 		assert(n_parent && n_parent->child_best != NULL);
 	}
@@ -315,7 +303,7 @@ int get_res(void){
 		mctsSimulation();
 		TEST_VALUE++;
 	}
-//	MSG("node visited: %d, sim:%d\n", TEST_VALUE, mcts.root->simulations);
+	MSG("node visited: %d, sim:%d\n", TEST_VALUE, mcts.root->simulations);
 	float select_mark = -1;
 	int select_move = 0;
 	for(i=0;i<mcts.root->moved_cnt;i++){
@@ -329,7 +317,6 @@ int get_res(void){
 	}
 	mcts.x = select_move & 0xF;
 	mcts.y = select_move >> 4;
-	struct node *n = mcts.root->p_nmn[mcts.y][mcts.x];
 }
 
 void round_init0(void){
@@ -371,8 +358,8 @@ int main(){
 	while(GET_STATE(mcts.root->field, FIELD_ALL) == UNKNOWN){
 		TIME_START = clock();
 		get_res();
-		//printf("mctsMoveChildNode(%d);\n", (mcts.y<<4)|mcts.x);
-		//dumpNode(mcts.root);
+		printf("mctsMoveChildNode(%d);\n", (mcts.y<<4)|mcts.x);
+//		dumpNode(mcts.root);
 		mctsMoveChildNode((mcts.y<<4)|mcts.x);
 	}
 	release(mcts.root);
