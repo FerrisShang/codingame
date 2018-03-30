@@ -17,13 +17,14 @@ int TIME_START, TEST_VALUE, TEST_FLAG;
 enum ID{ EMPTY = 0, ID0 = 1, ID1 = 2, };
 enum win_map_state{ UNKNOWN = 0, ID0_WIN = 1, ID1_WIN = 2, DRAW_FULL = 3 };
 enum score{ SC_INVALID = -(1<<24), SC_ZERO = 0, SC_WIN = 1};
+char score_map_id0[1 << 18];
 char win_map[1 << 18];
 char win_map_all[1 << 18];
 int field_pos_map[9][9];
-int field_off_map[9][9];
 int field_off_map_set[9][9][4];
 int field_off_map_clear[9][9];
 
+#define T_SELECT                      24
 #define MSG(fmt, ...)                 fprintf(stderr, "DEBUG: " fmt, __VA_ARGS__)
 #define OP_ID(id)                     (3-(id))
 #define FIELD_ALL                     9
@@ -73,14 +74,13 @@ void init_maps(void){
 	for(j=0;j<9;j++){
 		for(i=0;i<9;i++){
 			field_pos_map[j][i] = (j/3)*3 + i/3;
-			field_off_map[j][i] =((j%3)*3 + i%3) * 2;
 			field_off_map_clear[j][i] = ~(0x03 << ((j%3)*3 + (i%3)) * 2);
 			for(id=1;id<=2;id++) field_off_map_set[j][i][id] = id << ((j%3)*3 + (i%3)) * 2;
 		}
 	}
 	// init win map
+	#define _GPI(N, x, y) GET_POS_ID(N, x, y)
 	for(n=0;n<(1 << 18);n++){
-		#define _GPI(N, x, y) GET_POS_ID(N, x, y)
 		if((_GPI(n, 0, 0) == ID0 || _GPI(n, 0, 0) == ID1) && ((_GPI(n, 0, 0) == _GPI(n, 1, 0) && _GPI(n, 1, 0) == _GPI(n, 2, 0)) || (_GPI(n, 0, 0) == _GPI(n, 0, 1) && _GPI(n, 0, 1) == _GPI(n, 0, 2)))){win_map[n] = _GPI(n, 0, 0); win_map_all[n] = _GPI(n, 0, 0);}
 		else if((_GPI(n, 1, 1) == ID0 || _GPI(n, 1, 1) == ID1) && (
 				(_GPI(n, 0, 1) == _GPI(n, 1, 1) && _GPI(n, 1, 1) == _GPI(n, 2, 1)) || (_GPI(n, 1, 0) == _GPI(n, 1, 1) && _GPI(n, 1, 1) == _GPI(n, 1, 2)) ||
@@ -97,6 +97,37 @@ void init_maps(void){
 			win_map[n] = DRAW_FULL;
 		}
 		else{win_map[n] = UNKNOWN; win_map_all[n] = UNKNOWN;}
+	}
+	// init score map
+	for(n=0;n<(1 << 18);n++){
+		if(win_map[n] == DRAW_FULL) score_map_id0[n] = 0;
+		else if(win_map[n] == ID0) score_map_id0[n] = 5;
+		else if(win_map[n] == ID1) score_map_id0[n] = -5;
+		else{
+			int i, j;
+			for(j=0;j<3;j++){
+				if((_GPI(n, 0, j) == 0 && _GPI(n, 1, j) == ID0 && _GPI(n, 2, j) == ID0) ||
+					(_GPI(n, 0, j) == ID0 && _GPI(n, 1, j) == 0 && _GPI(n, 2, j) == ID0) ||
+					(_GPI(n, 0, j) == ID0 && _GPI(n, 1, j) == ID0 && _GPI(n, 2, j) == 0) ||
+					(_GPI(n, j, 0) == 0 && _GPI(n, j, 1) == ID0 && _GPI(n, j, 2) == ID0) ||
+					(_GPI(n, j, 0) == ID0 && _GPI(n, j, 1) == 0 && _GPI(n, j, 2) == ID0) ||
+					(_GPI(n, j, 0) == ID0 && _GPI(n, j, 1) == ID0 && _GPI(n, j, 2) == 0) ||
+					(_GPI(n, 0, 0) == (j==0?0:ID0) && _GPI(n, 1, 1) == (j==1?0:ID0) && _GPI(n, 2, 2) == (j==2?0:ID0)) ||
+					(_GPI(n, 0, 2) == (j==0?0:ID0) && _GPI(n, 1, 1) == (j==1?0:ID0) && _GPI(n, 2, 0) == (j==2?0:ID0))){
+					score_map_id0[n] += 1;
+				}
+				if((_GPI(n, 0, j) == 0 && _GPI(n, 1, j) == ID1 && _GPI(n, 2, j) == ID1) ||
+					(_GPI(n, 0, j) == ID1 && _GPI(n, 1, j) == 0 && _GPI(n, 2, j) == ID1) ||
+					(_GPI(n, 0, j) == ID1 && _GPI(n, 1, j) == ID1 && _GPI(n, 2, j) == 0) ||
+					(_GPI(n, j, 0) == 0 && _GPI(n, j, 1) == ID1 && _GPI(n, j, 2) == ID1) ||
+					(_GPI(n, j, 0) == ID1 && _GPI(n, j, 1) == 0 && _GPI(n, j, 2) == ID1) ||
+					(_GPI(n, j, 0) == ID1 && _GPI(n, j, 1) == ID1 && _GPI(n, j, 2) == 0) ||
+					(_GPI(n, 0, 0) == (j==0?0:ID1) && _GPI(n, 1, 1) == (j==1?0:ID1) && _GPI(n, 2, 2) == (j==2?0:ID1)) ||
+					(_GPI(n, 0, 2) == (j==0?0:ID1) && _GPI(n, 1, 1) == (j==1?0:ID1) && _GPI(n, 2, 0) == (j==2?0:ID1))){
+					score_map_id0[n] -= 1;
+				}
+			}
+		}
 	}
 }
 
@@ -145,7 +176,7 @@ struct node* growNode(struct node* node, unsigned char point)
 	n->last_move = point;
 	n->score = 0;
 	n->simulations += 1;
-	n->child_max_score = -1;
+	n->child_max_score = SC_INVALID;
 	node->p_nmn[y][x] = n;
 	// update field
 	SET(field, x, y, n->id);
@@ -173,9 +204,9 @@ void mctsCreate(int id)
 {
 	mcts.root = createNode(id);
 }
-float mctsScore(int child_score, int child_sims, int sims)
+float mctsScore(struct node *n, int sims)
 {
-	return (float)child_score / child_sims + sqrt(2*log(sims) / child_sims);
+	return (float)n->sim_score / n->simulations + sqrt(2*log(sims) / n->simulations);
 }
 static void release(struct node* n)
 {
@@ -200,24 +231,6 @@ struct node* mctsMoveChildNode(unsigned char point)
 	release(root);
 	return mcts.root;
 }
-int getRandomRes(struct node *node)
-{
-	struct node *n = (struct node *)calloc(1, sizeof(struct node));
-	struct node *head = n;
-	static unsigned char rand_node_move[81];
-	*n = *node;
-	while(1){
-		int i;
-		if(n->win_state == node->id){ release(head); return SC_WIN;
-		}else if(n->win_state == OP_ID(node->id)){ release(head); return -SC_WIN;
-		}else if(n->win_state != UNKNOWN){ release(head); return SC_ZERO; }
-		unsigned char rand_move = n->valid_moves[rand() % n->valid_move_cnt];
-		unsigned char y = rand_move >> 4, x = rand_move & 0xF;
-		n->p_nmn[y][x] = growNode(n, rand_move);
-		n->moveds[n->moved_cnt++] = rand_move;
-		n = n->p_nmn[y][x];
-	}
-}
 void mctsSimulation(void)
 {
 	static struct node *node_list[81];
@@ -228,44 +241,32 @@ void mctsSimulation(void)
 	while(1){
 		assert(n != NULL);
 		node_list[node_cnt++] = n;
-		if(n->valid_move_cnt != n->moved_cnt || n->win_state != UNKNOWN){ break; }
+		if(n->valid_move_cnt != n->moved_cnt || n->win_state != UNKNOWN || n->simulations < T_SELECT){ break; }
 		n = n->child_best;
 	}
 	// expand & rollouts
-#if 0
-	if(n->win_state == UNKNOWN){
-		move_cnt = 0;
-		for(i=0;i<n->valid_move_cnt;i++){
-			int y = n->valid_moves[i] >> 4, x = n->valid_moves[i] & 0xF;
-			if(n->p_nmn[y][x] == NULL){
-				rand_node_move[move_cnt++] = n->valid_moves[i];
-			}
-		}
-		unsigned char rand_move = rand_node_move[rand() % move_cnt];
-		unsigned char y = rand_move >> 4, x = rand_move & 0xF;
-		n->p_nmn[y][x] = growNode(n, rand_move);
-		n->moveds[n->moved_cnt++] = rand_move;
-		n = n->p_nmn[y][x];
-		n->sim_score = getRandomRes(n);
-		node_list[node_cnt++] = n;
-	}
-#else
 	while(n->win_state == UNKNOWN){
+		unsigned char rand_move, y, x;
 		move_cnt = 0;
-		for(i=0;i<n->valid_move_cnt;i++){
-			int y = n->valid_moves[i] >> 4, x = n->valid_moves[i] & 0xF;
-			if(n->p_nmn[y][x] == NULL){
-				rand_node_move[move_cnt++] = n->valid_moves[i];
+		if(n->valid_move_cnt != n->moved_cnt){
+			for(i=0;i<n->valid_move_cnt;i++){
+				int y = n->valid_moves[i] >> 4, x = n->valid_moves[i] & 0xF;
+				if(n->p_nmn[y][x] == NULL){
+					rand_node_move[move_cnt++] = n->valid_moves[i];
+				}
 			}
+			rand_move = rand_node_move[rand() % move_cnt];
+			y = rand_move >> 4; x = rand_move & 0xF;
+			n->p_nmn[y][x] = growNode(n, rand_move);
+			n->moveds[n->moved_cnt++] = rand_move;
+			n = n->p_nmn[y][x];
+		}else{
+			rand_move = n->valid_moves[rand() % n->valid_move_cnt];
+			y = rand_move >> 4; x = rand_move & 0xF;
+			n = n->p_nmn[y][x];
 		}
-		unsigned char rand_move = rand_node_move[rand() % move_cnt];
-		unsigned char y = rand_move >> 4, x = rand_move & 0xF;
-		n->p_nmn[y][x] = growNode(n, rand_move);
-		n->moveds[n->moved_cnt++] = rand_move;
-		n = n->p_nmn[y][x];
 		node_list[node_cnt++] = n;
 	}
-#endif
 	// backward propagation
 	while(--node_cnt > 0){
 		struct node *n_me     = node_list[node_cnt];
@@ -276,14 +277,14 @@ void mctsSimulation(void)
 		}else{
 			n_parent->sim_score -= n->sim_score;
 		}
-		n_me->mcts_score = mctsScore(n_me->sim_score, n_me->simulations, n_parent->simulations);
+		n_me->mcts_score = mctsScore(n_me, n_parent->simulations);
 		// TODO: update best child
 		if(n_parent->child_max_score < n_me->mcts_score || ((rand()&1) && n_parent->child_max_score == n_me->mcts_score)){
 			n_parent->child_max_score = n_me->mcts_score;
 			n_parent->child_best = n_me;
 		}else if(n_parent->child_best == n_me){
 			int i;
-			n_parent->child_max_score = -1;
+			n_parent->child_max_score = SC_INVALID;
 			for(i=0;i<n_parent->moved_cnt;i++){
 				unsigned char moveds = n_parent->moveds[i];
 				if(n_parent->p_nmn[moveds>>4][moveds&0xF]->mcts_score > n_parent->child_max_score){
@@ -292,7 +293,6 @@ void mctsSimulation(void)
 				}
 			}
 		}
-		assert(n_me->mcts_score >= 0);
 		assert(n_parent && n_parent->child_best != NULL);
 	}
 }
@@ -304,7 +304,7 @@ int get_res(void){
 		TEST_VALUE++;
 	}
 	MSG("node visited: %d, sim:%d\n", TEST_VALUE, mcts.root->simulations);
-	float select_mark = -1;
+	float select_mark = SC_INVALID;
 	int select_move = 0;
 	for(i=0;i<mcts.root->moved_cnt;i++){
 		int y = mcts.root->moveds[i] >> 4;
