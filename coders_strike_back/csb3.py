@@ -2,7 +2,6 @@
 import sys
 import math
 import time
-import random
 
 
 class C:
@@ -129,7 +128,7 @@ class M:  # math function
 class U:  # utils
     @staticmethod
     def debug(msg):
-        print('DEBUG:'+msg, file=sys.stderr)
+        print('DEBUG: {}'.format(msg), file=sys.stderr)
 
     @staticmethod
     def op_lead():
@@ -144,25 +143,13 @@ class U:  # utils
             v0 = v0 * 17 / 20
         return length
 
-    @staticmethod
-    def coll_point(p_out, p_in, o):  # dist(p_out, o)>2*r & dist(p_in, o)<r
-        _mid = ((p_out[0]+p_in[0])/2, (p_out[1]+p_in[1])/2)
-        tmp_dist = M.dist(_mid, o)
-        if abs(tmp_dist - G.pod_r*2) < 5:
-            return [round(_mid[0]), round(_mid[1])]
-        elif abs(p_out[0] - p_in[0]) + abs(p_out[0] - p_in[0]) < 1:
-            return None
-        if tmp_dist - G.pod_r*2 < 0:
-            return G.coll_point(_mid, p_in, o)
-        else:
-            return G.coll_point(p_out, _mid, o)
-
     class Time:
         def __init__(self):
             self.count = time.time()
 
         def get_s(self):
             return time.time() - self.count
+
 
 class P:  # pod define
     def __init__(self, g, _id):
@@ -176,6 +163,7 @@ class P:  # pod define
         self.v = (0, 0)
         self.ang = 0
         self.nc_id = 0
+        self.nnc_id = 0
         self.onc_id = 0
         self.mode = C.MODE_NORMAL
         self.act = None
@@ -186,12 +174,15 @@ class P:  # pod define
         self.v = (vx, vy)
         self.ang = ang
         self.nc_id = nc_id
+        self.nnc_id = 0 if nc_id + 1 == G.cps_num else self.nc_id + 1
         # lap
         self.shield = self.shield - 1 if self.shield > 0 else 0
         if self.onc_id != self.nc_id:
             self.onc_id = self.nc_id
             if self.nc_id == 0:
                 self.lap += 1
+        self.act = None
+        self.debug_msg = None
 
     def lap_count(self):
         return self.lap * G.cps_num + self.nc_id
@@ -230,9 +221,9 @@ class G:  # match define
             _thrust = int(_act[i][C.POD_THRUST]) if isinstance(_act[i][C.POD_THRUST], int) else _act[i][C.POD_THRUST]
             if isinstance(_thrust, str):
                 if _thrust == 'BOOST':
-                    G.pods[idx].boost = False
+                    G.pods[i].boost = False
                 elif _thrust == 'SHIELD':
-                    G.pods[idx].shield = SHIELD_DELAY
+                    G.pods[i].shield = C.SHIELD_DELAY
 
             if isinstance(pods[i].debug_msg, str) and len(pods[i].debug_msg) > 0:
                 print('{} {} {} {}'.format(
@@ -314,9 +305,8 @@ class Sim:
 def process(g):
     assert(isinstance(g, G))
     for i in range(C.MY_POD_NUM):
-        g.pods[i].act = None
-        g.pods[i].debug_msg = None
-        g.pods[i].act = [C.BASE_X+C.W/2, C.BASE_Y+C.H/2, C.MAX_THRUST]
+        t = G.cps[g.pods[i].nc_id]
+        g.pods[i].act = [t[0], t[1], 80]
         g.pods[i].debug_msg = 'POD-{}'.format(i)
     return [g.pods[C.M1], g.pods[C.M2]]
 
