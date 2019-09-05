@@ -3,7 +3,7 @@
 #include <sys/time.h>
 #include <cmath>
 #include <algorithm>
-#include <vectory>
+#include <vector>
 #include <queue>
 #include <list>
 #include <map>
