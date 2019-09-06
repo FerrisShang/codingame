@@ -34,7 +34,7 @@ class V{
 		}
 		friend ostream& operator << (ostream& out, V& v){
 			for(auto it=v.m.begin(); it!=v.m.end(); ++it){ out << it->first << "[" << it->second << "]" << " "; }
-			return out; 
+			return out;
 		}
 };
 

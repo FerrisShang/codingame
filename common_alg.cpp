@@ -16,7 +16,7 @@ using namespace std;
 class P{
 	public: int x, y;
 	P(int x=0, int y=0){this->x = x; this->y = y;}
-	friend ostream& operator << (ostream& out, P& p){ out << "(" << p.x << ", " << p.y << ")"; return out; }
+	friend ostream& operator << (ostream& out, const P& p){ out << "(" << p.x << ", " << p.y << ")"; return out; }
 	friend istream& operator >> (istream& in, P& p){ in >> p.x; in >> p.y; return in;}
 	inline bool operator == (const P& p){ return this->x == p.x && this->y == p.y; }
 	inline P operator / (const int& d){ return P(this->x / d, this->y / d); }
@@ -42,6 +42,96 @@ class M // math
 class U // utils
 {
 	public:
+	template <class T>
+	class Graph{public:
+		class node {public: int id; vector<int> edge; T info; };
+		typedef bool (*search_callback_t)(const node& nd, void* pdata);
+		int node_num;
+		vector<bool> visited;
+		search_callback_t search_callback;
+		void* search_pdata;
+		vector<int> search_path;
+		inline bool is_visited(int n){ bool ret = visited[n]; visited[n] = true; return ret; }
+		inline node* __dfs__(int node_idx){
+			if(is_visited(node_idx)) return NULL;
+			if(search_callback(n[node_idx], search_pdata)) return &n[node_idx];
+			for(auto it = n[node_idx].edge.begin(); it != n[node_idx].edge.end(); ++it){
+				node* ret = __dfs__(*it);
+				if(ret) return ret;
+			}
+			return NULL;
+		}
+		inline node* __dfs__(int node_idx, int& max_deep){
+			if(is_visited(node_idx) || max_deep == 0) return NULL;
+			if(search_callback(n[node_idx], search_pdata)) return &n[node_idx];
+			for(auto it = n[node_idx].edge.begin(); it != n[node_idx].edge.end(); ++it){
+				max_deep--;
+				node* ret = __dfs__(*it, max_deep);
+				max_deep++;
+				if(ret) return ret;
+			}
+			return NULL;
+		}
+		inline vector<int> __dfs_get_path_from_search_path__(int n){
+			vector<int> res;
+			while(search_path[n] != n){
+				res.push_back(n);
+				n = search_path[n];
+			}
+			FOR(i, res.size()/2){ swap(res[i], res[res.size() - i - 1]); }
+			return res;
+		}
+
+		public:
+		vector<node> n;
+		Graph(int size=0){ node_num = size; n.resize(node_num); }
+		inline void set_size(int size){
+			node_num = size; n.resize(node_num); visited.resize(node_num);
+			FOR(i, n.size()){ n[i].id = i; }
+		}
+		inline void add_edge(int s, int d){ n[s].edge.push_back(d); }
+		inline void add_edge_both(int v1, int v2){ add_edge(v1, v2); add_edge(v2, v1); }
+		inline node* dfs(int node_idx, search_callback_t cb, void *pdata){
+			search_callback = cb; search_pdata = pdata; visited.resize(node_num, false);
+			return __dfs__(node_idx);
+		}
+		inline node* dfs(int node_idx, int max_deep, search_callback_t cb, void *pdata){
+			search_callback = cb; search_pdata = pdata; visited.resize(node_num, false);
+			return __dfs__(node_idx, max_deep);
+		}
+		inline vector<int> bfs(int node_idx, int max_deep, search_callback_t cb, void *pdata){
+			search_callback = cb; search_pdata = pdata; visited.resize(node_num, false);
+			list<pair<int, int>> queue;
+			int deep_cnt = 0;
+			search_path.resize(node_num);
+			is_visited(node_idx);
+			queue.push_back(pair<int, int>(node_idx, deep_cnt));
+			search_path[node_idx] = node_idx;
+			while(!queue.empty()){
+				node_idx = queue.front().first;
+				deep_cnt = queue.front().second + 1;
+				if(search_callback(n[node_idx], search_pdata)){
+					return __dfs_get_path_from_search_path__(node_idx);
+				}
+				queue.pop_front();
+				if(max_deep == deep_cnt) continue;
+				for (auto i=n[node_idx].edge.begin(); i != n[node_idx].edge.end(); ++i)
+					if (!is_visited(*i)){
+						queue.push_back(pair<int, int>(*i, deep_cnt));
+						search_path[*i] = node_idx;
+					}
+			}
+			return vector<int>(0);
+		}
+		inline vector<int> bfs(int node_idx, search_callback_t cb, void *pdata){ return bfs(node_idx, 1e5, cb , pdata); }
+		inline vector<int> ass(int s, int d, search_callback_t h_cb, void *pdata){
+			class PR: public pair<int, int>{
+				inline bool operator <(const PR& pr){ return this->first < pr.first; }
+			};
+			//TODO: Unfinished
+		}
+		inline vector<int> get_search_path(void){ return search_path; }
+	};
 };
 class GCOM // game common environment
 {
@@ -53,7 +143,7 @@ class GCOM // game common environment
 		inline void update(void){ time_rec = get_time(); }
 		inline bool is_time_up(void){ return get_time() - time_rec > max_time; }
 		inline bool is_time_up(long max_time){ return get_time() - time_rec > max_time; }
-		inline long get(void){ return get_time() - time_rec; } // Time speed
+		inline long get(void){ return get_time() - time_rec; } // Time spend
 	};
 	public:
 	int round;
