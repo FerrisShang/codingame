@@ -165,6 +165,7 @@ class U // utils
 		inline vector< pair<int, int> > get_bfs_path(void){ return search_path; }
 	};
 };
+int player_count, my_id, op_id, zone_count, link_count, platinum_num;
 class GCOM // game common environment
 {
 	class Time
@@ -178,19 +179,49 @@ class GCOM // game common environment
 		inline long get(void){ return get_time() - time_rec; } // Time spend
 	};
 	public:
+	struct Zone{public:
+		int pods[2]; int z_id; int owner_id; int visible; int platinum;
+		friend ostream& operator << (ostream& out, const Zone& z){
+			out << "ID:" << z.z_id << " Owner:" << z.owner_id << " p0:" << z.pods[0] << " p1:" << z.pods[1] << " V:" << z.visible; return out;
+		}
+	};
 	int round;
-	string action_str;
 	GCOM::Time *T;
+	vector<int> visiable_zones, my_pods_zones, op_pods_zones, my_plat_zone;
+	U::Graph<Zone> zones;
 	GCOM(long round_time_max){
 		this->round = 0;
 		T = new GCOM::Time(round_time_max);
 		/* Here is for Initialization input */
+		cin >> player_count >> my_id >> zone_count >> link_count;
+		op_id = 1 - my_id;
+		zones.set_size(zone_count);
+		FOR(i, zone_count){
+			int z, p; cin >> z >> p;
+			cin.ignore();
+			zones.n[i].info.visible = -1;
+			zones.n[i].info.platinum = 0;
+		}
+		FOR(i, link_count){ int z1, z2; cin >> z1 >> z2; cin.ignore(); zones.add_edge_both(z1, z2); }
 	}
 	void round_update(void) {
 		T->update();
 		this->round++;
-		action_str = "";
 		/* Here is for Input for one game turn */
+		visiable_zones.resize(0);
+		my_pods_zones.resize(0);
+		op_pods_zones.resize(0);
+		cin >> platinum_num; cin.ignore();
+		FOR(i, zone_count){
+			Zone *z = &zones.n[i].info;
+			int owner_id, platinum;
+			cin >> z-> z_id >> owner_id >> z->pods[0] >> z->pods[1] >> z->visible >> platinum; cin.ignore();
+			//cin >> z-> z_id >> z->owner_id >> z->pods[0] >> z->pods[1] >> z->visible >> z->platinum; cin.ignore();
+			if(z->visible > 0){ z->owner_id = owner_id; z->platinum = platinum; }
+			if(z->visible > 0){ visiable_zones.push_back(i); }else{continue;}
+			if(z->pods[my_id] > 0){ my_pods_zones.push_back(i); if(z->platinum > 0){ my_plat_zone.push_back(i); }}
+			if(z->pods[op_id] > 0){ op_pods_zones.push_back(i); }
+		}
 	}
 };
 class S //simulation
@@ -198,13 +229,158 @@ class S //simulation
 };
 class G : public GCOM // game custom
 {
+	class Pmonitor{
+		public:
+		Pmonitor(){last_round_num = 0; round_inc = 0;}
+		int last_round_num;
+		int round_inc;
+		int cur_predict;
+		int cur_spawn_num;
+		set<int> getting_set;
+		inline void update_num(G* g){
+			int predict_add = 0;
+			for(int i: getting_set){
+				if(g->zones.n[i].info.owner_id == my_id){
+					predict_add += g->zones.n[i].info.platinum;
+				}
+			}
+			cur_spawn_num = last_round_num / 20;
+			cur_predict = (last_round_num % 20) + round_inc + predict_add;
+			round_inc = platinum_num - (last_round_num % 20);
+			last_round_num = platinum_num;
+			getting_set.clear();
+		}
+		inline void capturing(G* g, int id){
+			if(g->zones.n[id].info.owner_id != my_id && g->zones.n[id].info.platinum > 0){
+				getting_set.insert(id);
+			}
+		}
+		inline int get_round_inc(void){ return round_inc; }
+		inline int lost_num(void){ return cur_predict - platinum_num; }
+	};
 	public:
 	/* Custom variables */
+	//int player_count, my_id, op_id, zone_count, link_count, platinum_num;
+	//GCOM::Time *T;
+	//vector<int> visiable_zones, my_pods_zones, op_pods_zones;
+	//U::Graph<Zone> zones;
+	vector<pair<int, int>> my_base_path, op_base_path;
+	int my_base_id, op_base_id;
+	vector<priority_queue<PII>> action_map;
+	vector<int> my_pods_valid;
+	Pmonitor pmonitor;
+	#define MP_DEFEND		0
+	#define MP_ATTACK		1
+	#define MP_PROTECT		2
+	#define MP_CAPTRURE		3
+	#define MP_SEARCH		4
+	#define MP_MIN			4
+
 	G(long round_time_ms_max=100):GCOM(round_time_ms_max){
 		/* Custom Initialization */
+		action_map.resize(zone_count);
+		my_pods_valid.resize(zone_count);
 	}
-	void process(void){
-		while(!T->is_time_up()); debug("Time spend: %ld \n", T->get());
+	inline void move(int num, int s, int d){ pmonitor.capturing(this, d);cout << num << " " << s << " " << d << " " ; }
+	inline void move(int num, int s, int d, int priority){
+		FOR(i, num){ action_map[s].push(PII(priority, d)); my_pods_valid[s]--; }
+	}
+	static bool is_zone_not_visited(const U::Graph<Zone>::node& node, void* pdata){
+		set<int>* handled_zone = (set<int>*)pdata;
+		if(!handled_zone->count(node.id) && node.info.owner_id != my_id){ return true; }
+		else return false;
+	}
+	inline void process(void){
+		pmonitor.update_num(this);
+		if(round == 1){
+			my_base_id = my_pods_zones.back();
+			op_base_id = op_pods_zones.back();
+			zones.bfs(my_base_id, NULL, NULL);
+			my_base_path = zones.get_bfs_path();
+			zones.bfs(op_base_id, NULL, NULL);
+			op_base_path = zones.get_bfs_path();
+		}
+		for(auto i : my_pods_zones){
+			my_pods_valid[i] = max(zones.n[i].info.pods[my_id] - zones.n[i].info.pods[op_id], 0);
+			if(zones.n[i].info.pods[op_id] > 0 && zones.n[i].info.platinum > 0){ pmonitor.capturing(this, i);}
+		}
+		if(pmonitor.lost_num() > 0) debug("Platinum lost: %d\n", pmonitor.lost_num());
+		__process__();
+		bool move_flag = false;
+		for(auto it : my_pods_zones){
+			auto *pq = &action_map[it];
+			my_pods_valid[it] = 0;
+			while(!pq->empty()){
+				int d = pq->top().second;
+				if(it != d){ move(1, it, d); move_flag = true; }
+				pq->pop();
+			}
+		}
+		if(!move_flag) cout << "WAIT";
+		cout<< endl << "WAIT" << endl;
+	}
+	inline void __process__(void){
+		//while(!T->is_time_up()); debug("Time spend: %ld \n", T->get());
+		set<int> handled_zone;
+		for(auto z_id: my_pods_zones){
+			handled_zone.insert(z_id);
+			for(int i = my_pods_valid[z_id];i>0;i--){
+#if 1
+				vector<pair<int, int>> dest_path;
+				#define SHORT_DIST 10
+				if(op_base_path[my_base_id].second < SHORT_DIST){
+					int dest_dist = op_base_path[z_id].second-1;
+					int target[6], target_num = 0;
+					for(auto j: zones.n[z_id].edge){
+						if(op_base_path[j].second == dest_dist){
+							target[target_num++] = j;
+						}
+					}
+					move(1, z_id, target[rand()%target_num], MP_ATTACK);
+					continue;
+				}
+				if(op_base_path[z_id].second < 3){ move(1, z_id, op_base_path[z_id].first, MP_ATTACK); continue; }
+				if(zones.n[z_id].info.platinum > 0 && zones.bfs(z_id, 2, [](auto node, void* p){return node.info.pods[op_id] > 0;}, NULL).size() > 0){
+					move(1, z_id, z_id, MP_ATTACK);
+					continue;
+				}
+				dest_path = zones.bfs(z_id, 2,
+						[](auto node, void* p){
+							set<int>* hz = (set<int>*)p;
+							return (!hz->count(node.id) && node.info.owner_id != my_id && node.info.platinum > 0); },
+						&handled_zone);
+				if(dest_path.size() > 0){
+					handled_zone.insert(dest_path.back().first);
+					move(1, z_id, dest_path[0].first, MP_CAPTRURE);
+					continue;
+				}
+				dest_path = zones.bfs(z_id, 2, is_zone_not_visited, &handled_zone);
+				if(dest_path.size() > 0){
+					handled_zone.insert(dest_path.back().first);
+					move(1, z_id, dest_path[0].first, MP_SEARCH);
+					continue;
+				}
+				dest_path = zones.bfs(z_id, 3, is_zone_not_visited, &handled_zone);
+				if(dest_path.size() > 0){
+					move(1, z_id, dest_path[0].first, MP_SEARCH);
+					continue;
+				}
+#endif
+				{
+					FOR(_, i){
+						int dest_dist = op_base_path[z_id].second-1;
+						int target[6], target_num = 0;
+						for(auto j: zones.n[z_id].edge){
+							if(op_base_path[j].second == dest_dist){
+								target[target_num++] = j;
+							}
+						}
+						move(1, z_id, target[rand()%target_num], MP_ATTACK);
+					}
+					break;
+				}
+			}
+		}
 	}
 };
 void _D_E_B_U_G_(){
@@ -217,3 +393,4 @@ int main(int argc, char** argv) {
 		g.process();
 	}
 }
+
