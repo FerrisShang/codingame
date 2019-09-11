@@ -14,7 +14,7 @@ using namespace std;
 #define FORBE(_I_, _T_) for(auto _I_=_T_.begin();_I_!=_T_.end();_I_++)
 #define R2D(R) ((R) * 180.0 / 3.1415926536)
 #define D2R(D) ((D) * 3.1415926536 / 180.0)
-#define PII pair<int ,int>
+#define PII pair<int, int>
 class P{
 	public: int x, y;
 	P(int x=0, int y=0){this->x = x; this->y = y;}
@@ -46,30 +46,30 @@ class U // utils
 	public:
 	template <class T>
 	class Graph{public:
-		class node {public: int id; vector<int> edge; T info; };
-		typedef bool (*search_callback_t)(const node& nd, void* pdata);
+		class Node {public: int id; vector<int> edge; T info; };
+		typedef bool (*search_callback_t)(const Node& nd, void* pdata);
 		int node_num;
 		vector<bool> visited;
 		search_callback_t search_callback;
 		void* search_pdata;
-		vector< pair<int, int> > search_path; //next point & distance
+		vector<PII> search_path; //next point & distance
 		vector<int> path_cost;
 		inline bool is_visited(int n){ bool ret = visited[n]; visited[n] = true; return ret; }
-		inline node* __dfs__(int node_idx){
+		inline Node* __dfs__(int node_idx){
 			if(is_visited(node_idx)) return NULL;
 			if(search_callback(n[node_idx], search_pdata)) return &n[node_idx];
 			for(auto it = n[node_idx].edge.begin(); it != n[node_idx].edge.end(); ++it){
-				node* ret = __dfs__(*it);
+				Node* ret = __dfs__(*it);
 				if(ret) return ret;
 			}
 			return NULL;
 		}
-		inline node* __dfs__(int node_idx, int& max_deep){
+		inline Node* __dfs__(int node_idx, int& max_deep){
 			if(is_visited(node_idx) || max_deep == 0) return NULL;
 			if(search_callback(n[node_idx], search_pdata)) return &n[node_idx];
 			for(auto it = n[node_idx].edge.begin(); it != n[node_idx].edge.end(); ++it){
 				max_deep--;
-				node* ret = __dfs__(*it, max_deep);
+				Node* ret = __dfs__(*it, max_deep);
 				max_deep++;
 				if(ret) return ret;
 			}
@@ -77,7 +77,7 @@ class U // utils
 		}
 
 		public:
-		vector<node> n;
+		vector<Node> n;
 		Graph(int size=0){ set_size(size); }
 		inline void set_size(int size){
 			node_num = size; n.resize(node_num); visited.resize(node_num, false);
@@ -85,30 +85,30 @@ class U // utils
 		}
 		inline void add_edge(int s, int d){ n[s].edge.push_back(d); }
 		inline void add_edge_both(int v1, int v2){ add_edge(v1, v2); add_edge(v2, v1); }
-		inline node* dfs(int node_idx, search_callback_t cb, void *pdata){
+		inline Node* dfs(int node_idx, search_callback_t cb, void *pdata){
 			search_callback = cb; search_pdata = pdata; visited.resize(0); visited.resize(node_num, false);
 			return __dfs__(node_idx);
 		}
-		inline node* dfs(int node_idx, int max_deep, search_callback_t cb, void *pdata){
+		inline Node* dfs(int node_idx, int max_deep, search_callback_t cb, void *pdata){
 			search_callback = cb; search_pdata = pdata; visited.resize(0); visited.resize(node_num, false);
 			return __dfs__(node_idx, max_deep);
 		}
-		inline vector< pair<int, int> > bfs(int node_idx, int max_deep, search_callback_t cb, void *pdata){
+		inline vector<PII> bfs(int node_idx, int max_deep, search_callback_t cb, void *pdata){
 			search_callback = cb; search_pdata = pdata; visited.resize(0); visited.resize(node_num, false);
-			list<pair<int, int>> queue;
+			list<PII> queue;
 			int deep_cnt = 0;
 			search_path.resize(node_num);
 			is_visited(node_idx);
-			queue.push_back(pair<int, int>(node_idx, deep_cnt));
-			search_path[node_idx] = pair<int, int>(node_idx, deep_cnt);
+			queue.push_back(PII(node_idx, deep_cnt));
+			search_path[node_idx] = PII(node_idx, deep_cnt);
 			while(!queue.empty()){
 				node_idx = queue.front().first;
 				deep_cnt = queue.front().second + 1;
 				if(search_callback && search_callback(n[node_idx], search_pdata)){
-					vector<pair<int, int>> res;
+					vector<PII> res;
 					int dist = 0;
 					while(search_path[node_idx].first != node_idx){
-						res.push_back(pair<int, int>(node_idx, dist++));
+						res.push_back(PII(node_idx, dist++));
 						node_idx = search_path[node_idx].first;
 					}
 					FOR(i, res.size()/2){ swap(res[i], res[res.size() - i - 1]); }
@@ -118,15 +118,15 @@ class U // utils
 				if(max_deep == deep_cnt) continue;
 				for (auto i=n[node_idx].edge.begin(); i != n[node_idx].edge.end(); ++i){
 					if (!is_visited(*i)){
-						queue.push_back(pair<int, int>(*i, deep_cnt));
-						search_path[*i] = pair<int, int>(node_idx, deep_cnt);
+						queue.push_back(PII(*i, deep_cnt));
+						search_path[*i] = PII(node_idx, deep_cnt);
 					}
 				}
 			}
-			return vector<pair<int, int>>(0);
+			return vector<PII>(0);
 		}
-		inline vector< pair<int, int> > bfs(int node_idx, search_callback_t cb, void *pdata){ return bfs(node_idx, 1e5, cb , pdata); }
-		inline vector< pair<int, int> > ass(int s, int d, search_callback_t h_cb, void *pdata){
+		inline vector<PII> bfs(int node_idx, search_callback_t cb, void *pdata){ return bfs(node_idx, 1e5, cb , pdata); }
+		inline vector<PII> ass(int s, int d, search_callback_t h_cb, void *pdata){
 			class PR{public: int first; int second;
 				PR(const int& a, const int& b){ this->first = a; this->second = b; }
 				inline bool operator <(const PR& p) const { return this->first < p.first; }
@@ -135,7 +135,7 @@ class U // utils
 			priority_queue<PR> frontier;
 			frontier.push(PR(0, s));
 			search_path.resize(node_num);
-			search_path[s] = pair<int, int>(s, 0);
+			search_path[s] = PII(s, 0);
 			path_cost.resize(0);
 			path_cost.resize(node_num, -1);
 			path_cost[s] = 0;
@@ -147,22 +147,84 @@ class U // utils
 					int new_cost = path_cost[node_idx] + 1;
 					if(path_cost[*i] < 0 || new_cost < path_cost[*i]){
 						path_cost[*i] = new_cost;
-						if(h_cb){ frontier.push(PR(-(new_cost + h_cb(n[*i], search_pdata)), *i)); }
+						if(h_cb){ frontier.push(PR(-(new_cost + h_cb(n[*i], pdata)), *i)); }
 						else { frontier.push(PR(-(new_cost + (d - *i)), *i)); }
-						search_path[*i] = pair<int, int>(node_idx, 0);
+						search_path[*i] = PII(node_idx, 0);
 					}
 				}
 			}
-			vector<pair<int, int>> res;
+			vector<PII> res;
 			int dist = 0;
 			while(search_path[d].first != d){
-				res.push_back(pair<int, int>(d, dist++));
+				res.push_back(PII(d, dist++));
 				d = search_path[d].first;
 			}
 			FOR(i, res.size()/2){ swap(res[i], res[res.size() - i - 1]); }
 			return res;
 		}
-		inline vector< pair<int, int> > get_bfs_path(void){ return search_path; }
+		inline vector<PII> get_bfs_path(void){ return search_path; }
+	};
+
+	template <class T>
+	class Cartesian{
+		public:
+		class Node{public: P p; T info;};
+		typedef bool (*search_callback_t)(const Node& nd, void *pdata);
+		typedef pair<P, int> PPI;
+		P size;
+		vector<vector<Node>> n;
+		vector<vector<bool>> visited;
+		vector<vector<int>> path_cost;
+		vector<vector<PPI>> search_path; // next point & distance
+		search_callback_t search_callback;
+		void* search_pdata;
+		Cartesian(int x=0, int y=0){ set_size(x, y); }
+		inline void set_size(int x, int y){
+			size = P(x, y);
+			n.resize(y); visited.resize(y); path_cost.resize(y); search_path.resize(y);
+			FOR(i, y){ n[i].resize(x); FOR(j, x){ n[i][j].p = P(j, i); } }
+			FOR(i, y){ visited[i].resize(x); }
+			FOR(i, y){ path_cost[i].resize(x); FOR(j, x){ path_cost[i][j] = -1; } }
+			FOR(i, y){ search_path[i].resize(x); }
+		}
+		inline vector<PPI> ass(P s, P d, search_callback_t is_blocked, void *pdata){
+			vector<P> tmp_visited;
+			class PR{public: int first; P second;
+				PR(const int& a, const P& b){first=a;second=b;}
+				inline bool operator <(const PR& p)const{return first < p.first;}
+			};
+			priority_queue<PR> frontier;
+			frontier.push(PR(0, s)); tmp_visited.push_back(s);
+			search_path[s.y][s.x] = PPI(s, 0);
+			path_cost[s.y][s.x] = 0;
+			while(!frontier.empty()){
+				P cn_pos = frontier.top().second;
+				if(cn_pos == d) break;
+				frontier.pop();
+				const static vector<P> offset = {P(0,1), P(0,-1), P(1,0), P(-1,0)};
+				for(auto i: offset){
+					P pos = i + cn_pos;
+					if(pos.y < 0 || pos.y >= size.y || pos.x < 0 || pos.x > size.x){ continue; }
+					if(is_blocked(n[pos.y][pos.x], pdata)){ continue; }
+					int new_cost = path_cost[cn_pos.y][cn_pos.x] + 1;
+					if(path_cost[pos.y][pos.x] < 0 || new_cost < path_cost[pos.y][pos.x]){
+						path_cost[pos.y][pos.x] = new_cost;
+						frontier.push(PR(-(new_cost + abs(pos.x-d.x)+abs(pos.y-d.y)), pos));
+						tmp_visited.push_back(pos);
+						search_path[pos.y][pos.x] = PPI(cn_pos, 0);
+					}
+				}
+			}
+			vector<PPI> res;
+			int dist = 0;
+			while(!(search_path[d.y][d.x].first == d)){
+				res.push_back(PPI(d, dist++));
+				d = search_path[d.y][d.x].first;
+			}
+			FOR(i, res.size()/2){ swap(res[i], res[res.size() - i - 1]); }
+			for(auto i: tmp_visited){ visited[i.y][i.x] = false; path_cost[i.y][i.x] = -1; }
+			return res;
+		}
 	};
 };
 class GCOM // game common environment
