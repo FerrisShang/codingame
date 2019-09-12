@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include <queue>
+#include <deque>
 #include <list>
 #include <map>
 #include <set>
@@ -21,6 +22,7 @@ class P{
 	friend ostream& operator << (ostream& out, const P& p){ out << "(" << p.x << ", " << p.y << ")"; return out; }
 	friend istream& operator >> (istream& in, P& p){ in >> p.x; in >> p.y; return in;}
 	inline bool operator == (const P& p){ return this->x == p.x && this->y == p.y; }
+	inline P operator * (const int& d){ return P(this->x * d, this->y * d); }
 	inline P operator / (const int& d){ return P(this->x / d, this->y / d); }
 	inline P operator + (const P& p){ return P(this->x + p.x, this->y + p.y); }
 	inline P operator - (const P& p){ return P(this->x - p.x, this->y - p.y); }
@@ -169,7 +171,7 @@ class U // utils
 	class Cartesian{
 		public:
 		class Node{public: P p; T info;};
-		typedef bool (*search_callback_t)(const Node& nd, void *pdata);
+		typedef int (*search_callback_t)(const Node& nd, void *pdata);
 		typedef pair<P, int> PPI;
 		P size;
 		vector<vector<Node>> n;
@@ -204,7 +206,7 @@ class U // utils
 				const static vector<P> offset = {P(0,1), P(0,-1), P(1,0), P(-1,0)};
 				for(auto i: offset){
 					P pos = i + cn_pos;
-					if(pos.y < 0 || pos.y >= size.y || pos.x < 0 || pos.x > size.x){ continue; }
+					if(pos.y < 0 || pos.y >= size.y || pos.x < 0 || pos.x >= size.x){ continue; }
 					if(is_blocked(n[pos.y][pos.x], pdata)){ continue; }
 					int new_cost = path_cost[cn_pos.y][cn_pos.x] + 1;
 					if(path_cost[pos.y][pos.x] < 0 || new_cost < path_cost[pos.y][pos.x]){
