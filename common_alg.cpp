@@ -16,18 +16,20 @@ using namespace std;
 #define R2D(R) ((R) * 180.0 / 3.1415926536)
 #define D2R(D) ((D) * 3.1415926536 / 180.0)
 #define PII pair<int, int>
+#define PPI pair<P, int>
 class P{
 	public: int x, y;
 	P(int x=0, int y=0){this->x = x; this->y = y;}
 	friend ostream& operator << (ostream& out, const P& p){ out << "(" << p.x << ", " << p.y << ")"; return out; }
 	friend istream& operator >> (istream& in, P& p){ in >> p.x; in >> p.y; return in;}
-	inline bool operator == (const P& p){ return this->x == p.x && this->y == p.y; }
+	inline bool operator == (const P& p)const{ return this->x == p.x && this->y == p.y; }
 	inline P operator * (const int& d){ return P(this->x * d, this->y * d); }
 	inline P operator / (const int& d){ return P(this->x / d, this->y / d); }
 	inline P operator + (const P& p){ return P(this->x + p.x, this->y + p.y); }
 	inline P operator - (const P& p){ return P(this->x - p.x, this->y - p.y); }
 	inline void operator += (const P& p){ this->x += p.x; this->y += p.y; }
 	inline void operator -= (const P& p){ this->x -= p.x; this->y -= p.y; }
+	inline bool operator < (const P& p)const{ return ((this->x<<16)+this->y) < ((p.x<<16)+p.y); }
 };
 class C // const
 {
@@ -40,6 +42,7 @@ class M // math
 	static float points_distance(P p1, P p2){return sqrt((p1.x-p2.x)*(p1.x-p2.x) + (p1.y-p2.y)*(p1.y-p2.y));}
 	static float points_distance(P p1){return sqrt(p1.x*p1.x + p1.y*p1.y);}
 	static P points_offset(P src, P dest){return P(dest.y - src.y, dest.x - src.x);}
+	static int points_length(P src, P dest){return abs(dest.y - src.y) + abs(dest.x - src.x);}
 	static int length_about(float length, float match_length, float deviation){return length >=match_length - deviation and length <  match_length + deviation;}
 	static int length_about(float length, float match_length){return M::length_about(length, match_length, 3);}
 };
@@ -172,7 +175,6 @@ class U // utils
 		public:
 		class Node{public: P p; T info;};
 		typedef int (*search_callback_t)(const Node& nd, void *pdata);
-		typedef pair<P, int> PPI;
 		P size;
 		vector<vector<Node>> n;
 		vector<vector<bool>> visited;
@@ -234,7 +236,7 @@ class GCOM // game common environment
 	class Time
 	{
 		public: long max_time, time_rec;
-		Time(int max_time=100){this->max_time = max_time; this->time_rec = get_time();}
+		Time(int max_time=100){this->max_time = max_time; this->time_rec = get_time();}//srand(time_rec);}
 		inline long get_time(void){ struct timeval tv; gettimeofday(&tv, NULL); return tv.tv_sec * 1000 + tv.tv_usec / 1000; }
 		inline void update(void){ time_rec = get_time(); }
 		inline bool is_time_up(void){ return get_time() - time_rec > max_time; }
