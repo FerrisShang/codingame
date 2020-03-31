@@ -1,14 +1,4 @@
-#include <iostream>
-#include <stdio.h>
-#include <sys/time.h>
-#include <cmath>
-#include <algorithm>
-#include <vector>
-#include <queue>
-#include <deque>
-#include <list>
-#include <map>
-#include <set>
+#include <bits/stdc++.h>
 using namespace std;
 #define debug(args...) fprintf(stderr, args)
 #define FOR(_I_, _N_) for(int _I_=0;_I_<_N_;_I_++)
@@ -17,6 +7,13 @@ using namespace std;
 #define D2R(D) ((D) * 3.1415926536 / 180.0)
 #define PII pair<int, int>
 #define PPI pair<P, int>
+
+inline int RAND() {
+	static unsigned int g_seed = 123456;
+	g_seed = (214013*g_seed+2531011);
+	return (g_seed>>16)&0x7FFF;
+}
+
 class P{
 	public: int x, y;
 	P(int x=0, int y=0){this->x = x; this->y = y;}
