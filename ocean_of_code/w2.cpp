@@ -1,4 +1,4 @@
-include <bits/stdc++.h>
+#include <bits/stdc++.h>
 #include <sys/time.h>
 using namespace std;
 #define debug(args...) fprintf(stderr, args)
@@ -14,6 +14,7 @@ inline int RAND() {
 	g_seed = (214013*g_seed+2531011);
 	return (g_seed>>16)&0x7FFF;
 }
+
 class P{
 	public: int x, y;
 	P(int x=0, int y=0){this->x = x; this->y = y;}
@@ -51,7 +52,7 @@ class U // utils
 		class Node {public: int id; vector<int> edge; T info; };
 		typedef bool (*search_callback_t)(const Node& nd, void* pdata);
 		int node_num;
-		vector<bool> visited;
+		vector<uint8_t> visited;
 		search_callback_t search_callback;
 		void* search_pdata;
 		vector<PII> search_path; //next point & distance
@@ -242,18 +243,42 @@ class GCOM // game common environment
 	};
 	public:
 	int round;
+	int width, height, myId;
+	int x, y, myLife, oppLife;
+	int torpedoCooldown, sonarCooldown, silenceCooldown, mineCooldown;
+	char grid[16][16];
+	char visited[16][16];
 	string action_str;
+	string sonarResult, opponentOrders;
+	string opActions;
 	GCOM::Time *T;
 	GCOM(long round_time_max){
 		this->round = 0;
 		T = new GCOM::Time(round_time_max);
 		/* Here is for Initialization input */
+		cin >> width >> height >> myId; cin.ignore();
+		FOR(i, height){
+			string line;
+			getline(cin, line);
+			FOR(j, width){ grid[i][j] = line.c_str()[j]; }
+		}
+		while(1){
+			x = RAND() % 15, y = RAND() % 15;
+			if(grid[y][x] == '.'){
+				cout << x << ' ' << y << endl;
+				break;
+			}
+		}
 	}
 	void round_update(void) {
 		T->update();
 		this->round++;
 		action_str = "";
 		/* Here is for Input for one game turn */
+        cin >> x >> y >> myLife >> oppLife >> torpedoCooldown >> sonarCooldown >> \
+			silenceCooldown >> mineCooldown; cin.ignore();
+        cin >> sonarResult; cin.ignore();
+        getline(cin, opponentOrders);
 	}
 };
 class S //simulation
@@ -263,11 +288,47 @@ class G : public GCOM // game custom
 {
 	public:
 	/* Custom variables */
-	G(long round_time_ms_max=100):GCOM(round_time_ms_max){
+	inline bool isV(int x, int y){ return x>=0&&y>=0&&x<15&&y<15; }
+	inline bool isMV(int x, int y){ return isV(x,y) && visited[y][x]==0; }
+	inline void dump_grid(void){
+		FOR(i, 15){ FOR(j, 15){ debug("%d", visited[i][j]); } cerr<<endl; }
+	}
+	inline void surface(void){
+		FOR(i, 16) FOR(j, 16){
+			if(visited[i][j]==1) visited[i][j] = 0;
+		}
+		visited[y][x]=1;
+	}
+	G(long round_time_ms_max=10):GCOM(round_time_ms_max){
 		/* Custom Initialization */
+		FOR(i, 16) FOR(j, 16){
+			if(i==y&&x==j){ visited[i][j] = 1; }
+			else if(grid[i][j] == 'x'){ visited[i][j] = 2; }
+			else{ visited[i][j] = 0; }
+		}
+		dump_grid();
 	}
 	void process(void){
-		while(!T->is_time_up()); debug("Time spend: %ld \n", T->get());
+		//while(0 && !T->is_time_up()); debug("Time spend: %ld \n", T->get());
+		vector<P> ps = {{1,0}, {-1,0}, {0,1}, {0,-1}, };
+		char d[4] = {'E', 'W', 'S', 'N'};
+		debug("I'm here (%d,%d)\n", x, y);
+		int nx = -1, ny = -1;
+		FOR(i, 4){
+			nx = ps[i].x+x, ny = ps[i].y+y;
+			debug("n:(%d,%d), %d & %d\n", nx, ny, isV(nx,ny), isMV(nx,ny));
+			if(isMV(nx, ny)){
+				printf("MOVE %c TORPEDO (%d,%d)\n", d[i], nx, ny);
+				debug("Move to (%d,%d)\n", nx, ny);
+				visited[ny][nx] = 1;
+				return;
+			}
+		}
+		// no where to move
+		printf("SURFACE\n");
+		dump_grid();
+		surface();
+		dump_grid();
 	}
 };
 void _D_E_B_U_G_(){
